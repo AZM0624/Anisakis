@@ -1,47 +1,43 @@
 #include "player.h"
-#include <SDL2/SDL_ttf.h> // 文字を描画するために追加
+#include <math.h>
 
 // プレイヤーを初期化する
-void player_init(Player* player, SDL_Renderer* renderer) {
-    player->x = 100.0f;
-    player->y = 100.0f;
-    player->w = 32;
-    player->h = 32;
-    player->speed = 200.0f; // 1秒間に200ピクセル動く
-
-    // --- 今回は画像ではなく、「P」という文字を描画してテクスチャにする ---
-    TTF_Font* font = TTF_OpenFont("arial.ttf", 24); // PCに入っているフォントを指定
-    SDL_Color color = {255, 255, 255, 255}; // 白色
-    SDL_Surface* surface = TTF_RenderText_Solid(font, "P", color);
-    player->texture = SDL_CreateTextureFromSurface(renderer, surface);
-    SDL_FreeSurface(surface);
-    TTF_CloseFont(font);
-    // ---
+void player_init(Player* player) {
+    player->x = 12.0f; // マップの中央付近 (2Dマップ上の座標)
+    player->y = 12.0f;
+    player->angle = 0.0; // Y軸マイナス方向（上）を向く
+    player->fov = M_PI / 3.0; // 60度の視野角
+    player->moveSpeed = 3.0;  // 1秒間に3タイル動く
+    player->rotSpeed = 2.0;   // 1秒間に2ラジアン（約114度）回転
 }
 
 // キーボード入力に応じてプレイヤーを動かす
-void player_handle_input(Player* player, const Uint8* key_state) {
+void player_handle_input(Player* player, const Uint8* key_state, double deltaTime) {
+    
+    double moveStep = player->moveSpeed * deltaTime;
+    double rotStep = player->rotSpeed * deltaTime;
+
+    // 前後の移動 (W, S)
     if (key_state[SDL_SCANCODE_W]) {
-        player->y -= player->speed * (1.0f / 60.0f); // 60FPSを想定した移動量
+        double nextX = player->x + cos(player->angle) * moveStep;
+        double nextY = player->y + sin(player->angle) * moveStep;
+        // 壁との衝突判定 (簡易)
+        if (worldMap[(int)nextX][(int)player->y] == 0) player->x = nextX;
+        if (worldMap[(int)player->x][(int)nextY] == 0) player->y = nextY;
     }
     if (key_state[SDL_SCANCODE_S]) {
-        player->y += player->speed * (1.0f / 60.0f);
+        double nextX = player->x - cos(player->angle) * moveStep;
+        double nextY = player->y - sin(player->angle) * moveStep;
+        if (worldMap[(int)nextX][(int)player->y] == 0) player->x = nextX;
+        if (worldMap[(int)player->x][(int)nextY] == 0) player->y = nextY;
     }
+
+    // 左右の回転 (A, D) - FPSでは通常、左右は回転
     if (key_state[SDL_SCANCODE_A]) {
-        player->x -= player->speed * (1.0f / 60.0f);
+        player->angle -= rotStep;
     }
     if (key_state[SDL_SCANCODE_D]) {
-        player->x += player->speed * (1.0f / 60.0f);
+        player->angle += rotStep;
     }
-}
-
-// プレイヤーを描画する
-void player_render(Player* player, SDL_Renderer* renderer) {
-    SDL_Rect dest_rect = {(int)player->x, (int)player->y, player->w, player->h};
-    SDL_RenderCopy(renderer, player->texture, NULL, &dest_rect);
-}
-
-// プレイヤーが使ったメモリを解放する
-void player_destroy(Player* player) {
-    SDL_DestroyTexture(player->texture);
+    // TODO: ストレイフ（左右平行移動）も追加すると良い
 }
