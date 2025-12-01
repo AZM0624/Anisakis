@@ -14,7 +14,7 @@
 #include "map.h"
 #include "player.h"
 
-#define SERVER_IP "127.0.0.1"
+#define SERVER_IP "192.168.1.130"
 #define SERVER_PORT 12345
 #define BUF_SIZE 512
 #define SCREEN_WIDTH 800
