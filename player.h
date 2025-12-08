@@ -11,6 +11,9 @@ typedef struct {
     double fov;      // 視野角 (ラジアン)
     double moveSpeed;
     double rotSpeed; // 回転速度
+
+    int hp;        // hp
+    int maxHp;     // 最大hp
 } Player;
 
 // プレイヤーに対する操作（関数）
