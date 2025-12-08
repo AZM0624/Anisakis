@@ -9,6 +9,9 @@ void player_init(Player* player) {
     player->fov = M_PI / 3.0; // 60度の視野角
     player->moveSpeed = 3.0;  // 1秒間に3タイル動く
     player->rotSpeed = 2.0;   // 1秒間に2ラジアン（約114度）回転
+
+    player->maxHp = 100; // 最大hpを100に設定
+    player->hp = 100;
 }
 
 // キーボード入力に応じてプレイヤーを動かす

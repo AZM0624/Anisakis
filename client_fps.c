@@ -149,12 +149,50 @@ int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture
     return 0;
 }
 
-void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAmmo, int isReloading, const char* hitMsg, int hitTimer) {
+void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAmmo, int isReloading, const char* hitMsg, int hitTimer, int hp, int maxHp) {
+    // 1. 照準（クロスヘア）の描画
     SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
     int cx = SCREEN_WIDTH / 2, cy = SCREEN_HEIGHT / 2;
     SDL_RenderDrawLine(ren, cx - 10, cy, cx + 10, cy);
     SDL_RenderDrawLine(ren, cx, cy - 10, cx, cy + 10);
 
+    // 2. HPバーの描画
+    int barWidth = 200;
+    int barHeight = 20;
+    int barX = 20;
+    int barY = SCREEN_HEIGHT - 40;
+
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color transparent = {0, 0, 0, 0};
+
+    // 背景（暗いグレー、完全不透明）
+    SDL_Rect bgRect = {barX, barY, barWidth, barHeight};
+    SDL_SetRenderDrawColor(ren, 50, 50, 50, 255); 
+    SDL_RenderFillRect(ren, &bgRect);
+
+    // HP残量（緑色）
+    if (hp < 0) hp = 0;
+    float hpPercent = (float)hp / (float)maxHp;
+    int fillWidth = (int)(barWidth * hpPercent);
+    SDL_Rect fgRect = {barX, barY, fillWidth, barHeight};
+    SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
+    SDL_RenderFillRect(ren, &fgRect);
+
+    // 枠線（白）
+    SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
+    SDL_RenderDrawRect(ren, &bgRect);
+
+    if (font) {
+        // 文字 "HP"
+        draw_text_bg(ren, font, "HP", barX, barY - 30, white, transparent);
+        
+        // HP数値をテキストで表示
+        char hpText[32];
+        sprintf(hpText, "%d/%d", hp, maxHp);
+        draw_text_bg(ren, font, hpText, barX + barWidth + 10, barY, white, transparent);
+    }
+
+    // 3. 銃と弾薬の描画
     int gunX = SCREEN_WIDTH - 200, gunY = SCREEN_HEIGHT - 150;
 
     if (gunTex) {
@@ -173,6 +211,7 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         SDL_RenderFillRect(ren, &r);
     }
 
+    // マズルフラッシュ
     if (isFiring >= 4) { 
         SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_ADD); 
         SDL_Color flashCol = {255, 200, 50, 255}; 
@@ -182,7 +221,6 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     }
 
-    SDL_Color white = {255, 255, 255, 255};
     SDL_Color red = {255, 50, 50, 255};
     SDL_Color bgCol = {0, 0, 0, 150}; 
 
@@ -196,13 +234,13 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         draw_text_bg(ren, font, "AMMO", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 100, white, bgCol);
     }
 
+    // ヒット通知
     if (hitTimer > 0) {
         SDL_Color hitCol = {255, 50, 50, 255};
         if (strcmp(hitMsg, "HEADSHOT!!") == 0) hitCol = (SDL_Color){255, 255, 0, 255}; 
         draw_text_bg(ren, fontBig, hitMsg, SCREEN_WIDTH/2 - 100, 100, hitCol, bgCol);
     }
 }
-
 int main(int argc, char **argv) {
     int sock; struct sockaddr_in srvaddr;
     if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) return 1;
@@ -304,7 +342,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, hitMsg, hitTimer);
+        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, hitMsg, hitTimer, player.hp, player.maxHp);
         if (hitTimer > 0) hitTimer--;
 
         SDL_RenderPresent(ren);
