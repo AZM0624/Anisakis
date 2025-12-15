@@ -3,6 +3,7 @@
 #include <SDL2/SDL.h>
 #include "player.h"
 #include "map.h" // マップ情報
+#include "skill.h" // スキル情報
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 600
@@ -52,7 +53,8 @@ void draw_walls(SDL_Renderer* renderer, Player* player) {
 
         int hit = 0;
         int side = 0; // 0=X軸の壁, 1=Y軸の壁
-
+        int wallType = 0; // 壁の種類を保存する変数（エスクード用）
+        
         // 3. レイを飛ばす
         while (hit == 0) {
             if (sideDistX < sideDistY) {
@@ -88,12 +90,21 @@ void draw_walls(SDL_Renderer* renderer, Player* player) {
         if (drawEnd >= SCREEN_HEIGHT) drawEnd = SCREEN_HEIGHT - 1;
 
         // 6. 壁の色を決定（X軸かY軸かで色を変えて立体感を出す）
-        if (side == 1) {
-            SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); // 暗い色
+        if (wallType == 2) {
+            // エスクード（青緑色)
+            if (side == 1) {
+                SDL_SetRenderDrawColor(renderer, 0, 100, 100, 255);
+            } else {
+                SDL_SetRenderDrawColor(renderer, 0, 150, 150, 255);
+            }
         } else {
-            SDL_SetRenderDrawColor(renderer, 150, 150, 150, 255); // 明るい色
+            // 通常の壁（灰色）
+            if (side == 1) {
+                SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); // 暗い色
+            } else {
+                SDL_SetRenderDrawColor(renderer, 150, 150, 150, 255); // 明るい色
+            }
         }
-
         // 7. 垂直線を描画
         SDL_RenderDrawLine(renderer, x, drawStart, x, drawEnd);
     }
