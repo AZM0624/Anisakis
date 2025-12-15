@@ -13,6 +13,7 @@
 
 #include "map.h"
 #include "player.h"
+#include "skill.h"
 
 // ★★★ ここをサーバーPCのIPアドレスに書き換えてください ★★★
 #define SERVER_IP "192.168.1.130" 
@@ -290,6 +291,11 @@ int main(int argc, char **argv) {
                     isFiring = 5; 
                     currentAmmo--;
                 }
+            }
+
+            // スキル・エスクード（Eキー） 
+            if (ev.key.keysym.scancode == SDL_SCANCODE_E) {
+                skill_escudo(&player);
             }
         }
 
