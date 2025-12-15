@@ -242,6 +242,7 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         draw_text_bg(ren, fontBig, hitMsg, SCREEN_WIDTH/2 - 100, 100, hitCol, bgCol);
     }
 }
+
 int main(int argc, char **argv) {
     int sock; struct sockaddr_in srvaddr;
     if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) return 1;
@@ -285,17 +286,22 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) running = 0;
             
-            // ★★★ 変更点: マウスから Jキー(SDL_SCANCODE_J) に変更 ★★★
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_J) {
-                if (!isReloading && currentAmmo > 0) {
-                    isFiring = 5; 
-                    currentAmmo--;
+            // ★キーが押されたときの処理をここにまとめる
+            if (ev.type == SDL_KEYDOWN) {
+                
+                // Jキー: 射撃
+                if (ev.key.keysym.scancode == SDL_SCANCODE_J) {
+                    if (!isReloading && currentAmmo > 0) {
+                        isFiring = 5; 
+                        currentAmmo--;
+                    }
                 }
-            }
 
-            // スキル・エスクード（Eキー） 
-            if (ev.key.keysym.scancode == SDL_SCANCODE_E) {
-                skill_escudo(&player);
+                // Eキー: スキル
+                // ★この中に書くことで、本当にキーを押した時だけ発動します
+                if (ev.key.keysym.scancode == SDL_SCANCODE_E) {
+                    skill_escudo(&player);
+                }
             }
         }
 
