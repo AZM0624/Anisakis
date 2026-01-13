@@ -31,6 +31,13 @@
 #define FIRE_ANIM_TIME 15
 #define FLASH_DURATION 10
 
+// ゲーム状態
+#define GS_WAITING 0
+#define GS_COUNTDOWN 1
+#define GS_PLAYING 2
+#define GS_WIN_ATTACKER 3
+#define GS_WIN_DEFENDER 4
+
 #pragma pack(push,1)
 typedef struct {
     uint32_t seq;
@@ -46,9 +53,10 @@ typedef struct {
     int active;
     int doorHP;
     int role;       
-    int gameState;
+    int gameState;  
     int selfHP;     
     int enemyHP;    
+    int countdown;
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -222,7 +230,7 @@ int get_target_block(Player* player) {
 }
 
 void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAmmo, int isReloading, 
-             int myRole, int doorHP, int gameState, int selfHP) {
+             int myRole, int doorHP, int gameState, int selfHP, int countdown) {
     SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
     SDL_RenderDrawLine(ren, SCREEN_WIDTH/2 - 10, SCREEN_HEIGHT/2, SCREEN_WIDTH/2 + 10, SCREEN_HEIGHT/2);
     SDL_RenderDrawLine(ren, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 10);
@@ -252,6 +260,19 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
     SDL_Color bgCol = {0, 0, 0, 150}; 
 
     char msg[64];
+    
+    // ★待機中の表示を更新
+    if (gameState == GS_WAITING) {
+        draw_text_bg(ren, fontBig, "Waiting for Player...", SCREEN_WIDTH/2 - 200, SCREEN_HEIGHT/2 - 50, white, bgCol);
+        draw_text_bg(ren, font, "(Press P to Force Start)", SCREEN_WIDTH/2 - 120, SCREEN_HEIGHT/2 + 20, white, bgCol);
+        return; 
+    } else if (gameState == GS_COUNTDOWN) {
+        if (countdown > 0) sprintf(msg, "%d", countdown);
+        else sprintf(msg, "START!");
+        draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH/2 - 20, SCREEN_HEIGHT/2 - 50, red, bgCol);
+        return; 
+    }
+
     if (myRole == 0) {
         sprintf(msg, "ATTACKER");
         draw_text_bg(ren, fontBig, msg, 20, 20, red, bgCol);
@@ -272,14 +293,12 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH - 200, SCREEN_HEIGHT - 70, (currentAmmo==0)?red:white, bgCol);
     }
 
-    if (gameState != 0) { 
-        if (gameState == 1) { 
-             if (myRole == 0) draw_text_bg(ren, fontBig, "VICTORY!!", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 50, red, bgCol);
-             else             draw_text_bg(ren, fontBig, "DEFEAT...", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 50, blue, bgCol);
-        } else if (gameState == 2) { 
-             if (myRole == 1) draw_text_bg(ren, fontBig, "VICTORY!!", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 50, blue, bgCol);
-             else             draw_text_bg(ren, fontBig, "DEFEAT...", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 50, red, bgCol);
-        }
+    if (gameState == GS_WIN_ATTACKER) { 
+        if (myRole == 0) draw_text_bg(ren, fontBig, "VICTORY!!", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 50, red, bgCol);
+        else             draw_text_bg(ren, fontBig, "DEFEAT...", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 50, blue, bgCol);
+    } else if (gameState == GS_WIN_DEFENDER) { 
+        if (myRole == 1) draw_text_bg(ren, fontBig, "VICTORY!!", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 50, blue, bgCol);
+        else             draw_text_bg(ren, fontBig, "DEFEAT...", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 50, red, bgCol);
     }
 }
 
@@ -317,10 +336,12 @@ int main(int argc, char **argv) {
 
     int myRole = -1;
     int doorHP = MAX_DOOR_HP;
-    int gameState = 0;
+    int gameState = GS_WAITING; 
     int selfHP = MAX_PLAYER_HP;
     int enemyHP = MAX_PLAYER_HP;
     int hitTargetStatus = 0; 
+    int countdown = 0;
+    int forceStart = 0; // 強制開始フラグ
 
     while (running) {
         Uint64 NOW = SDL_GetPerformanceCounter();
@@ -330,18 +351,28 @@ int main(int argc, char **argv) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) running = 0;
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_J) {
-                if (!isReloading && currentAmmo > 0 && gameState == 0 && selfHP > 0) {
-                    isFiring = FIRE_ANIM_TIME; 
-                    currentAmmo--;
+            
+            // 待機中にPキーで強制スタート
+            if (gameState == GS_WAITING) {
+                if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_P) {
+                    forceStart = 1;
                 }
             }
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_E) {
-                skill_escudo(&player);
+            
+            if (gameState == GS_PLAYING && selfHP > 0) {
+                if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_J) {
+                    if (!isReloading && currentAmmo > 0) {
+                        isFiring = FIRE_ANIM_TIME; 
+                        currentAmmo--;
+                    }
+                }
+                if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_E) {
+                    skill_escudo(&player);
+                }
             }
         }
 
-        if (gameState == 0 && selfHP > 0) {
+        if (gameState == GS_PLAYING && selfHP > 0) {
             int mouseX, mouseY;
             SDL_GetRelativeMouseState(&mouseX, &mouseY);
             player.angle += mouseX * 0.005; 
@@ -383,7 +414,7 @@ int main(int argc, char **argv) {
         draw_walls(ren, &player, doorHP); 
         hitTargetStatus = draw_enemy(ren, &player, &enemy, enemyTex, enemyHP);
 
-        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP);
+        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, countdown);
 
         SDL_RenderPresent(ren);
 
@@ -392,14 +423,17 @@ int main(int argc, char **argv) {
         out.x = player.x; out.y = player.y; out.angle = player.angle; 
         out.btn = 0;
         
+        // ★Pキーが押されたらビット4(16)を立てて送信
+        if (forceStart) {
+            out.btn |= 16;
+            forceStart = 0;
+        }
+        
         if (isFiring == FIRE_ANIM_TIME) {
             out.btn |= 1; 
             if (hitTargetStatus == 2) out.btn |= 8;      
             else if (hitTargetStatus == 1) out.btn |= 4; 
-            
-            if (get_target_block(&player) == 9) {
-                out.btn |= 2;
-            }
+            if (get_target_block(&player) == 9) out.btn |= 2;
         }
         sendto(sock, &out, sizeof(out), 0, (struct sockaddr*)&srvaddr, sizeof(srvaddr));
 
@@ -416,8 +450,9 @@ int main(int argc, char **argv) {
              gameState = in.gameState;
              selfHP = in.selfHP;
              enemyHP = in.enemyHP;
+             countdown = in.countdown; 
         }
-
+        
         if (isFiring > 0) isFiring--;
     }
 
