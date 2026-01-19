@@ -11,12 +11,17 @@
 #define MAX_DOOR_HP 1000
 #define MAX_PLAYER_HP 100
 
-// ゲーム状態
+// ゲーム状態の定義
 #define GS_WAITING 0
 #define GS_COUNTDOWN 1
-#define GS_PLAYING 2
+#define GS_SETUP 5      // 設置フェーズ
+#define GS_PLAYING 2    // 戦闘フェーズ
 #define GS_WIN_ATTACKER 3
 #define GS_WIN_DEFENDER 4
+
+// 時間設定
+#define TIME_SETUP 20   // 設置時間 60秒
+#define TIME_MATCH 60  // 試合時間 120秒
 
 // 受信パケット
 #pragma pack(push,1)
@@ -38,7 +43,7 @@ typedef struct {
     int gameState;  
     int selfHP;     
     int enemyHP;
-    int countdown;
+    int remainingTime; // ★変更: カウントダウン兼用、残り時間
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -58,24 +63,22 @@ int attacker_id = -1;
 
 // サーバー側の状態管理
 int currentGameState = GS_WAITING;
-time_t countdownStart = 0;
+time_t phaseStartTime = 0; // フェーズ開始時刻
 
 void init_game() {
     doorHP = MAX_DOOR_HP;
-    // どちらが攻めかランダムで決める
     attacker_id = rand() % 2;
     
     for(int i=0; i<2; i++) {
         clients[i].hp = MAX_PLAYER_HP;
         if (clients[i].active) {
-            // 自分のIDがattacker_idと一致すれば攻め(0)、違えば守り(1)
             clients[i].role = (i == attacker_id) ? 0 : 1;
         }
     }
     
-    // ゲーム開始！カウントダウンへ
+    // カウントダウン開始
     currentGameState = GS_COUNTDOWN;
-    countdownStart = time(NULL); 
+    phaseStartTime = time(NULL); 
     
     printf("Game Init! Countdown Started. Attacker ID: %d\n", attacker_id);
 }
@@ -112,13 +115,38 @@ int main() {
         clilen = sizeof(cliaddr);
         ssize_t n = recvfrom(sock, buf, BUF_SIZE, 0, (struct sockaddr *)&cliaddr, &clilen);
 
-        // 時間経過による状態遷移
+        // --- 時間経過による状態遷移 ---
+        time_t now = time(NULL);
+        int timeElapsed = (int)difftime(now, phaseStartTime);
+        int remaining = 0;
+
         if (currentGameState == GS_COUNTDOWN) {
-            time_t now = time(NULL);
-            double diff = difftime(now, countdownStart);
-            if (diff >= 4.0) { // 3, 2, 1, START!
+            remaining = 3 - timeElapsed;
+            if (remaining < 0) {
+                // カウントダウン終了 → 設置フェーズへ
+                currentGameState = GS_SETUP;
+                phaseStartTime = now;
+                remaining = TIME_SETUP;
+                printf("Phase: SETUP (%d sec)\n", TIME_SETUP);
+            }
+        } 
+        else if (currentGameState == GS_SETUP) {
+            remaining = TIME_SETUP - timeElapsed;
+            if (remaining < 0) {
+                // 設置終了 → 戦闘フェーズへ
                 currentGameState = GS_PLAYING;
-                printf("Game Started!\n");
+                phaseStartTime = now;
+                remaining = TIME_MATCH;
+                printf("Phase: PLAYING (%d sec)\n", TIME_MATCH);
+            }
+        }
+        else if (currentGameState == GS_PLAYING) {
+            remaining = TIME_MATCH - timeElapsed;
+            if (remaining < 0) {
+                // 時間切れ → ディフェンダー勝利（守りきった）
+                currentGameState = GS_WIN_DEFENDER;
+                remaining = 0;
+                printf("Time Up! Defender Wins.\n");
             }
         }
 
@@ -145,15 +173,9 @@ int main() {
                             clients[i].active = 1;
                             clients[i].hp = MAX_PLAYER_HP;
                             client_count++;
-                            
                             printf("Player %d joined.\n", id);
-
-                            // 2人揃ったら自動開始
-                            if (client_count == 2) {
-                                init_game();
-                            } else {
-                                clients[i].role = 0; // 仮
-                            }
+                            if (client_count == 2) init_game();
+                            else clients[i].role = 0;
                             break;
                         }
                     }
@@ -162,49 +184,36 @@ int main() {
 
             if (id != -1) {
                 clients[id].last_seen = time(NULL);
+                
+                // プレイヤーの移動情報更新
+                // ★TODO: セットアップ中、アタッカーは動けないようにする？（今回はクライアント側で制限）
                 clients[id].x = in->x;
                 clients[id].y = in->y;
                 clients[id].angle = in->angle;
 
                 int enemyId = (id == 0) ? 1 : 0;
 
-                // ★追加機能: 待機中にPキー(ビット4)が送られてきたら強制スタート
+                // 強制スタート (デバッグ用)
                 if (currentGameState == GS_WAITING && (in->btn & 16)) {
                     printf("Force Start Requested by Player %d\n", id);
                     init_game();
                 }
 
-                // ゲーム中の処理
+                // --- フェーズごとの処理 ---
                 if (currentGameState == GS_PLAYING) {
-                    // 扉への攻撃 (攻め側のみ)
+                    // 戦闘中のみダメージ判定
                     if (clients[id].role == 0 && (in->btn & 2)) {
-                        if (doorHP > 0) {
-                            doorHP -= 10;
-                            printf("Door Damaged! HP: %d\n", doorHP);
-                        }
+                        if (doorHP > 0) doorHP -= 10;
                     }
-
-                    // 敵への攻撃
                     if (clients[enemyId].active && clients[enemyId].hp > 0) {
-                        if (in->btn & 8) {      
-                            clients[enemyId].hp -= 40; 
-                            printf("Headshot! P%d -> P%d (HP:%d)\n", id, enemyId, clients[enemyId].hp);
-                        } else if (in->btn & 4) { 
-                            clients[enemyId].hp -= 15; 
-                            printf("Hit! P%d -> P%d (HP:%d)\n", id, enemyId, clients[enemyId].hp);
-                        }
+                        if (in->btn & 8) clients[enemyId].hp -= 40; 
+                        else if (in->btn & 4) clients[enemyId].hp -= 15; 
                         if (clients[enemyId].hp < 0) clients[enemyId].hp = 0;
                     }
 
-                    // 勝敗判定
-                    if (doorHP <= 0) {
-                        currentGameState = GS_WIN_ATTACKER;
-                    } else if (clients[0].active && clients[1].active) {
-                        if (clients[0].role == 0 && clients[0].hp <= 0) currentGameState = GS_WIN_DEFENDER; 
-                        if (clients[1].role == 0 && clients[1].hp <= 0) currentGameState = GS_WIN_DEFENDER; 
-                        if (clients[0].role == 1 && clients[0].hp <= 0) currentGameState = GS_WIN_ATTACKER; 
-                        if (clients[1].role == 1 && clients[1].hp <= 0) currentGameState = GS_WIN_ATTACKER; 
-                    }
+                    // 勝利判定: 扉破壊
+                    if (doorHP <= 0) currentGameState = GS_WIN_ATTACKER;
+                    // ※死亡による勝利判定はリスポーン実装時に削除または変更する必要がありますが、今は残しておきます
                 }
 
                 // 返信
@@ -213,14 +222,7 @@ int main() {
                 out.doorHP = doorHP;
                 out.gameState = currentGameState;
                 out.selfHP = clients[id].hp;
-                
-                int cdVal = 0;
-                if (currentGameState == GS_COUNTDOWN) {
-                    time_t now = time(NULL);
-                    cdVal = 3 - (int)difftime(now, countdownStart);
-                    if (cdVal < 0) cdVal = 0;
-                }
-                out.countdown = cdVal;
+                out.remainingTime = remaining; // 残り時間を送信
                 
                 if (clients[enemyId].active) {
                     out.x = clients[enemyId].x;
