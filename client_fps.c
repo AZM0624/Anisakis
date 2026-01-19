@@ -36,17 +36,12 @@
 #define JUMP_POWER 4.0    
 #define PITCH_SCALE 150.0 
 
-// ゲーム状態
 #define GS_WAITING 0
 #define GS_COUNTDOWN 1
-#define GS_SETUP 5      // ★追加
+#define GS_SETUP 5
 #define GS_PLAYING 2
 #define GS_WIN_ATTACKER 3
 #define GS_WIN_DEFENDER 4
-
-//追加
-#define SKILL1_COOLDOWN 15.0    /* F1: ヒールのクールダウン */
-#define SKILL2_COOLDOWN 20.0   /* F2: シールドのクールダウン */
 
 #pragma pack(push,1)
 typedef struct {
@@ -66,7 +61,9 @@ typedef struct {
     int gameState;  
     int selfHP;     
     int enemyHP;    
-    int remainingTime; // ★名前変更
+    int remainingTime;
+    int blockX; // ★追加
+    int blockY; // ★追加
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -83,6 +80,20 @@ int make_socket_nonblocking(int s) {
     int flags = fcntl(s, F_GETFL, 0);
     if (flags < 0) return -1;
     return fcntl(s, F_SETFL, flags | O_NONBLOCK);
+}
+
+// ★追加: マップ上のブロック位置を更新する関数
+void update_block_position(int tx, int ty) {
+    // まずマップから既存の9を消す
+    for(int x=0; x<MAP_WIDTH; x++) {
+        for(int y=0; y<MAP_HEIGHT; y++) {
+            if(worldMap[x][y] == 9) worldMap[x][y] = 0;
+        }
+    }
+    // 新しい位置に9を置く (範囲チェック付き)
+    if(tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT) {
+        worldMap[tx][ty] = 9;
+    }
 }
 
 void draw_text_bg(SDL_Renderer *ren, TTF_Font* useFont, const char *text, int x, int y, SDL_Color color, SDL_Color bgColor) {
@@ -105,7 +116,6 @@ void draw_floor_ceiling(SDL_Renderer* renderer, int pitch) {
     SDL_Rect ceiling = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT / 2 + pitch};
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); 
     SDL_RenderFillRect(renderer, &ceiling);
-    
     int floorY = SCREEN_HEIGHT / 2 + pitch;
     if (floorY < 0) floorY = 0; if (floorY > SCREEN_HEIGHT) floorY = SCREEN_HEIGHT;
     SDL_Rect floor = {0, floorY, SCREEN_WIDTH, SCREEN_HEIGHT - floorY};
@@ -167,7 +177,6 @@ int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture
     if (fabs(angleToEnemy) > player->fov / 1.5) return 0;
     double dist = sqrt(spriteX*spriteX + spriteY*spriteY);
     if (dist < 0.2) return 0;
-    
     double screenX = (0.5 + (angleToEnemy / player->fov)) * SCREEN_WIDTH;
     int spriteHeight = abs((int)(SCREEN_HEIGHT / dist));
     int spriteWidth = spriteHeight / 2; 
@@ -178,7 +187,6 @@ int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture
     int drawStartX = (int)screenX - spriteWidth / 2;
     int drawEndX = drawStartX + spriteWidth;
     int drawStartY = -spriteHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
-    
     if (texture) {
         for (int stripe = drawStartX; stripe < drawEndX; stripe++) {
             if (stripe >= 0 && stripe < SCREEN_WIDTH && dist < zBuffer[stripe]) {
@@ -197,7 +205,6 @@ int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture
             SDL_RenderFillRect(renderer, &r);
         }
     }
-
     if (drawStartX < SCREEN_WIDTH && drawEndX > 0) {
         int barW = spriteWidth; int barH = 5;
         int barX = drawStartX; int barY = drawStartY - 10;
@@ -207,7 +214,6 @@ int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture
         SDL_Rect hp = {barX, barY, hpW, barH};
         SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderFillRect(renderer, &hp);
     }
-
     int centerX = SCREEN_WIDTH / 2;
     if (centerX >= drawStartX && centerX <= drawEndX) {
         if (dist < zBuffer[centerX]) {
@@ -236,79 +242,10 @@ int get_target_block(Player* player) {
 }
 
 void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAmmo, int isReloading, 
-             int myRole, int doorHP, int gameState, int selfHP, int remainingTime, double skill1_cd, double skill2_cd, double shield_remain,int hp, int maxHp, const char* hitMsg, int hitTimer) {
+             int myRole, int doorHP, int gameState, int selfHP, int remainingTime) {
     SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
     SDL_RenderDrawLine(ren, SCREEN_WIDTH/2 - 10, SCREEN_HEIGHT/2, SCREEN_WIDTH/2 + 10, SCREEN_HEIGHT/2);
     SDL_RenderDrawLine(ren, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 10);
-    
-        // 1. 照準（クロスヘア）の描画
-    SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
-    int cx = SCREEN_WIDTH / 2, cy = SCREEN_HEIGHT / 2;
-    SDL_RenderDrawLine(ren, cx - 10, cy, cx + 10, cy);
-    SDL_RenderDrawLine(ren, cx, cy - 10, cx, cy + 10);
-
-    // 2. HPバーの描画
-    int barWidth = 200;
-    int barHeight = 20;
-    int barX = 20;
-    int barY = SCREEN_HEIGHT - 40;
-
-    SDL_Color white = {255, 255, 255, 255};
-    SDL_Color transparent = {0, 0, 0, 0};
-
-    // 背景（暗いグレー、完全不透明）
-    SDL_Rect bgRect = {barX, barY, barWidth, barHeight};
-    SDL_SetRenderDrawColor(ren, 50, 50, 50, 255); 
-    SDL_RenderFillRect(ren, &bgRect);
-    
-    if (font) {
-        // 文字 "HP"
-        draw_text_bg(ren, font, "HP", barX, barY - 30, white, transparent);
-        
-        // HP数値をテキストで表示
-        char hpText[32];
-        sprintf(hpText, "%d/%d", hp, maxHp);
-        draw_text_bg(ren, font, hpText, barX + barWidth + 10, barY, white, transparent);
-    }
-    
-    //追加
-    // --- スキルUI: 左下に F1/F2 表示とクールダウン ---
-    int sx = 20;
-    int sy = SCREEN_HEIGHT - 120;
-    int boxW = 140;
-    int boxH = 30;
-
-    // F1: Heal
-    SDL_Rect s1bg = {sx, sy, boxW, boxH};
-    SDL_SetRenderDrawColor(ren, 40, 40, 40, 200);
-    SDL_RenderFillRect(ren, &s1bg);
-    SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
-    SDL_RenderDrawRect(ren, &s1bg);
-    char s1txt[64];
-    if (skill1_cd > 0.01) sprintf(s1txt, "F1 HEAL (%.0fs)", ceil(skill1_cd));
-    else sprintf(s1txt, "F1 HEAL (Ready)");
-    draw_text_bg(ren, font, s1txt, sx + 8, sy + 4, white, (SDL_Color){0,0,0,120});
-
-    // F2: Shield
-    SDL_Rect s2bg = {sx, sy + 40, boxW, boxH};
-    SDL_SetRenderDrawColor(ren, 40, 40, 40, 200);
-    SDL_RenderFillRect(ren, &s2bg);
-    SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
-    SDL_RenderDrawRect(ren, &s2bg);
-    char s2txt[64];
-    if (skill2_cd > 0.01) sprintf(s2txt, "F2 SHIELD (%.0fs)", ceil(skill2_cd));
-    else sprintf(s2txt, "F2 SHIELD (Ready)");
-    draw_text_bg(ren, font, s2txt, sx + 8, sy + 44, white, (SDL_Color){0,0,0,120});
-
-        // シールド残り時間表示（あれば）
-    if (shield_remain > 0.01) {
-        char shieldtxt[64];
-        sprintf(shieldtxt, "Shield: %.1fs", shield_remain);
-        draw_text_bg(ren, font, shieldtxt, sx + boxW + 20, sy + 4, (SDL_Color){150,200,255,255}, (SDL_Color){0,0,0,120});
-    }
-    //ここまで追加
-
-    // 3. 銃と弾薬の描画
 
     int gunX = SCREEN_WIDTH - 200, gunY = SCREEN_HEIGHT - 150;
     if (gunTex) {
@@ -328,6 +265,7 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     }
 
+    SDL_Color white = {255, 255, 255, 255};
     SDL_Color red = {255, 50, 50, 255};
     SDL_Color blue = {100, 100, 255, 255};
     SDL_Color green = {50, 255, 50, 255};
@@ -335,7 +273,6 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
 
     char msg[64];
     
-    // UI表示分岐
     if (gameState == GS_WAITING) {
         draw_text_bg(ren, fontBig, "Waiting for Player...", SCREEN_WIDTH/2 - 200, SCREEN_HEIGHT/2 - 50, white, bgCol);
         draw_text_bg(ren, font, "(Press P to Force Start)", SCREEN_WIDTH/2 - 120, SCREEN_HEIGHT/2 + 20, white, bgCol);
@@ -346,16 +283,15 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH/2 - 20, SCREEN_HEIGHT/2 - 50, red, bgCol);
         return; 
     } else if (gameState == GS_SETUP) {
-        // セットアップ中
         sprintf(msg, "SETUP PHASE: %d", remainingTime);
         draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH/2 - 200, 20, (remainingTime < 10)?red:white, bgCol);
         
-        if (myRole == 1) draw_text_bg(ren, font, "DEFENDER: Prepare Defense!", SCREEN_WIDTH/2 - 150, 80, blue, bgCol);
-        else             draw_text_bg(ren, font, "ATTACKER: Wait...", SCREEN_WIDTH/2 - 100, 80, red, bgCol);
-        
-        // returnしない（HPなどは表示する）
+        if (myRole == 1) {
+            draw_text_bg(ren, font, "DEFENDER: Move Block [F]", SCREEN_WIDTH/2 - 150, 80, blue, bgCol);
+        } else {
+            draw_text_bg(ren, font, "ATTACKER: Wait...", SCREEN_WIDTH/2 - 100, 80, red, bgCol);
+        }
     } else if (gameState == GS_PLAYING) {
-        // 試合中
         sprintf(msg, "TIME: %d", remainingTime);
         draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH/2 - 100, 20, (remainingTime < 10)?red:white, bgCol);
     }
@@ -411,7 +347,7 @@ int main(int argc, char **argv) {
     SDL_SetRelativeMouseMode(SDL_TRUE);
 
     Player player; player_init(&player);
-    player.z = 0.0; player.vz = 0.0; // 初期化
+    player.z = 0.0; player.vz = 0.0; 
 
     Enemy enemy = {0};
     uint32_t seq = 0;
@@ -429,16 +365,9 @@ int main(int argc, char **argv) {
     int selfHP = MAX_PLAYER_HP;
     int enemyHP = MAX_PLAYER_HP;
     int hitTargetStatus = 0; 
-    int remainingTime = 0; // ★名前変更
+    int remainingTime = 0; 
     int forceStart = 0; 
-
-        /* 追加 */
-    double skill1_cd_timer = 0.0; /* F1 cooldown 残り */
-    double skill2_cd_timer = 0.0; /* F2 cooldown 残り */
-
-    /* ★★★ HIT表示用（ここに追加）★★★ */
-   char hitMsg[64] = "";
-   int hitTimer = 0;
+    int sendFKey = 0; // ★Fキー送信フラグ
 
     while (running) {
         Uint64 NOW = SDL_GetPerformanceCounter();
@@ -455,10 +384,8 @@ int main(int argc, char **argv) {
                 }
             }
             
-            // ★セットアップ中も移動だけは許可 (ディフェンダーは設置のため)
             if ((gameState == GS_PLAYING || gameState == GS_SETUP) && selfHP > 0) {
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_J) {
-                    // 攻撃は PLAYING 中のみ許可したいならここで制限するが、一旦全部OK
                     if (!isReloading && currentAmmo > 0) {
                         isFiring = FIRE_ANIM_TIME; 
                         currentAmmo--;
@@ -469,44 +396,17 @@ int main(int argc, char **argv) {
                     if (player.z <= 0) player.vz = JUMP_POWER;
                 }
 
-
-         // F1: ヒール発動　追加
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F1) {
-                if (skill1_cd_timer <= 0.0) {
-                    skill_heal(&player);
-                    skill1_cd_timer = SKILL1_COOLDOWN;
-                } else {
-                    SDL_Log("F1 on cooldown: %.2f", skill1_cd_timer);
+                // ★Fキー (ブロック持ち運び)
+                if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F) {
+                    sendFKey = 1;
                 }
-            }
 
-            // F2: シールド発動
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F2) {
-                if (skill2_cd_timer <= 0.0) {
-                    skill_shield_activate(&player);
-                    skill2_cd_timer = SKILL2_COOLDOWN;
-                } else {
-                    SDL_Log("F2 on cooldown: %.2f", skill2_cd_timer);
-                }
-            }
-
-            // --- ここに K ダメージ処理を追加 ---
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_K) {
-            SDL_Log("Test: applying 30 damage");
-            int applied = player_take_damage(&player, 30);
-            SDL_Log("Damage applied? %d, HP now %d/%d", applied, player.hp, player.maxHp);
-        }
-            //ここまで追加
-
-            // スキル・エスクード（Eキー） 
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_E) {
                     skill_escudo(&player);
                 }
-
             }
         }
 
-        // ★移動処理もセットアップ中許可
         if ((gameState == GS_PLAYING || gameState == GS_SETUP) && selfHP > 0) {
             int mouseX, mouseY;
             SDL_GetRelativeMouseState(&mouseX, &mouseY);
@@ -548,15 +448,6 @@ int main(int argc, char **argv) {
              if (key_state[SDL_SCANCODE_ESCAPE]) running = 0;
         }
 
-                /* 追加 */
-        if (skill1_cd_timer > 0.0) skill1_cd_timer -= dt;
-        if (skill2_cd_timer > 0.0) skill2_cd_timer -= dt;
-        if (skill1_cd_timer < 0.0) skill1_cd_timer = 0.0;
-        if (skill2_cd_timer < 0.0) skill2_cd_timer = 0.0;
-
-        /* 追加 */
-        skill_update(&player, (float)dt);
-
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
         
@@ -566,11 +457,7 @@ int main(int argc, char **argv) {
         draw_walls(ren, &player, doorHP); 
         hitTargetStatus = draw_enemy(ren, &player, &enemy, enemyTex, enemyHP);
 
-        /* 追加*/
-        float shield_remain = skill_get_shield_time_remaining(&player);
-
-        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime, skill1_cd_timer, skill2_cd_timer, shield_remain, player.hp, player.maxHp, hitMsg, hitTimer);
-        if (hitTimer > 0) hitTimer--;
+        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime);
 
         SDL_RenderPresent(ren);
 
@@ -579,10 +466,8 @@ int main(int argc, char **argv) {
         out.x = player.x; out.y = player.y; out.angle = player.angle; 
         out.btn = 0;
         
-        if (forceStart) {
-            out.btn |= 16;
-            forceStart = 0;
-        }
+        if (forceStart) { out.btn |= 16; forceStart = 0; }
+        if (sendFKey) { out.btn |= 32; sendFKey = 0; } // ★Fキー送信(bit 5)
         
         if (isFiring == FIRE_ANIM_TIME) {
             out.btn |= 1; 
@@ -605,7 +490,10 @@ int main(int argc, char **argv) {
              gameState = in.gameState;
              selfHP = in.selfHP;
              enemyHP = in.enemyHP;
-             remainingTime = in.remainingTime; // ★更新
+             remainingTime = in.remainingTime;
+             
+             // ★受信したブロック位置でマップ更新
+             update_block_position(in.blockX, in.blockY);
         }
         
         if (isFiring > 0) isFiring--;

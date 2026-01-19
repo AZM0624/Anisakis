@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -11,17 +12,16 @@
 #define MAX_DOOR_HP 1000
 #define MAX_PLAYER_HP 100
 
-// ゲーム状態の定義
+// ゲーム状態
 #define GS_WAITING 0
 #define GS_COUNTDOWN 1
-#define GS_SETUP 5      // 設置フェーズ
-#define GS_PLAYING 2    // 戦闘フェーズ
+#define GS_SETUP 5
+#define GS_PLAYING 2
 #define GS_WIN_ATTACKER 3
 #define GS_WIN_DEFENDER 4
 
-// 時間設定
-#define TIME_SETUP 20   // 設置時間 60秒
-#define TIME_MATCH 60  // 試合時間 120秒
+#define TIME_SETUP 60
+#define TIME_MATCH 120
 
 // 受信パケット
 #pragma pack(push,1)
@@ -33,7 +33,7 @@ typedef struct {
 } pkt_t;
 #pragma pack(pop)
 
-// 送信パケット
+// 送信パケット（ブロック座標を追加）
 #pragma pack(push,1)
 typedef struct {
     float x, y, angle;
@@ -43,7 +43,9 @@ typedef struct {
     int gameState;  
     int selfHP;     
     int enemyHP;
-    int remainingTime; // ★変更: カウントダウン兼用、残り時間
+    int remainingTime;
+    int blockX; // ★追加: ブロックのX座標
+    int blockY; // ★追加: ブロックのY座標
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -54,6 +56,7 @@ struct Client {
     float x, y, angle;
     int role;
     int hp;
+    uint8_t last_btn; // ボタンの押しっぱなし判定用
 };
 
 struct Client clients[2]; 
@@ -61,26 +64,34 @@ int client_count = 0;
 int doorHP = MAX_DOOR_HP;
 int attacker_id = -1;
 
-// サーバー側の状態管理
 int currentGameState = GS_WAITING;
-time_t phaseStartTime = 0; // フェーズ開始時刻
+time_t phaseStartTime = 0;
+
+// ★ブロック管理用変数
+int blockX = 8;  // 初期位置X (map.cと合わせる)
+int blockY = 12; // 初期位置Y
+int isBlockCarried = 0; // 誰かが持っているか
 
 void init_game() {
     doorHP = MAX_DOOR_HP;
     attacker_id = rand() % 2;
     
+    // ブロック位置リセット
+    blockX = 8; 
+    blockY = 12;
+    isBlockCarried = 0;
+
     for(int i=0; i<2; i++) {
         clients[i].hp = MAX_PLAYER_HP;
+        clients[i].last_btn = 0;
         if (clients[i].active) {
             clients[i].role = (i == attacker_id) ? 0 : 1;
         }
     }
     
-    // カウントダウン開始
     currentGameState = GS_COUNTDOWN;
     phaseStartTime = time(NULL); 
-    
-    printf("Game Init! Countdown Started. Attacker ID: %d\n", attacker_id);
+    printf("Game Init! Attacker ID: %d\n", attacker_id);
 }
 
 int main() {
@@ -115,44 +126,38 @@ int main() {
         clilen = sizeof(cliaddr);
         ssize_t n = recvfrom(sock, buf, BUF_SIZE, 0, (struct sockaddr *)&cliaddr, &clilen);
 
-        // --- 時間経過による状態遷移 ---
         time_t now = time(NULL);
         int timeElapsed = (int)difftime(now, phaseStartTime);
         int remaining = 0;
 
+        // フェーズ遷移
         if (currentGameState == GS_COUNTDOWN) {
             remaining = 3 - timeElapsed;
             if (remaining < 0) {
-                // カウントダウン終了 → 設置フェーズへ
                 currentGameState = GS_SETUP;
                 phaseStartTime = now;
                 remaining = TIME_SETUP;
-                printf("Phase: SETUP (%d sec)\n", TIME_SETUP);
+                printf("Phase: SETUP\n");
             }
-        } 
-        else if (currentGameState == GS_SETUP) {
+        } else if (currentGameState == GS_SETUP) {
             remaining = TIME_SETUP - timeElapsed;
             if (remaining < 0) {
-                // 設置終了 → 戦闘フェーズへ
                 currentGameState = GS_PLAYING;
                 phaseStartTime = now;
                 remaining = TIME_MATCH;
-                printf("Phase: PLAYING (%d sec)\n", TIME_MATCH);
+                isBlockCarried = 0; // 時間切れで強制設置
+                printf("Phase: PLAYING\n");
             }
-        }
-        else if (currentGameState == GS_PLAYING) {
+        } else if (currentGameState == GS_PLAYING) {
             remaining = TIME_MATCH - timeElapsed;
             if (remaining < 0) {
-                // 時間切れ → ディフェンダー勝利（守りきった）
                 currentGameState = GS_WIN_DEFENDER;
                 remaining = 0;
-                printf("Time Up! Defender Wins.\n");
             }
         }
 
         if (n > 0) {
             pkt_t *in = (pkt_t*)buf;
-            
             int id = -1;
             for (int i = 0; i < 2; i++) {
                 if (clients[i].active && 
@@ -163,7 +168,6 @@ int main() {
                 }
             }
 
-            // 新規参加
             if (id == -1) {
                 if (client_count < 2) {
                     for(int i=0; i<2; i++) {
@@ -173,7 +177,6 @@ int main() {
                             clients[i].active = 1;
                             clients[i].hp = MAX_PLAYER_HP;
                             client_count++;
-                            printf("Player %d joined.\n", id);
                             if (client_count == 2) init_game();
                             else clients[i].role = 0;
                             break;
@@ -184,45 +187,69 @@ int main() {
 
             if (id != -1) {
                 clients[id].last_seen = time(NULL);
-                
-                // プレイヤーの移動情報更新
-                // ★TODO: セットアップ中、アタッカーは動けないようにする？（今回はクライアント側で制限）
                 clients[id].x = in->x;
                 clients[id].y = in->y;
                 clients[id].angle = in->angle;
 
                 int enemyId = (id == 0) ? 1 : 0;
 
-                // 強制スタート (デバッグ用)
-                if (currentGameState == GS_WAITING && (in->btn & 16)) {
-                    printf("Force Start Requested by Player %d\n", id);
-                    init_game();
+                // 強制スタート
+                if (currentGameState == GS_WAITING && (in->btn & 16)) init_game();
+
+                // ★ブロック持ち運び処理 (セットアップ中 & ディフェンダーのみ)
+                if (currentGameState == GS_SETUP && clients[id].role == 1) {
+                    // Fキー (bit 5 = 32) が押された瞬間だけ処理
+                    if ((in->btn & 32) && !(clients[id].last_btn & 32)) {
+                        if (isBlockCarried) {
+                            // 既に持っているなら設置
+                            isBlockCarried = 0;
+                            printf("Block Placed at (%d, %d)\n", blockX, blockY);
+                        } else {
+                            // 持っていないなら、近くにあるか確認して持ち上げ
+                            float dx = clients[id].x - blockX;
+                            float dy = clients[id].y - blockY;
+                            if (sqrt(dx*dx + dy*dy) < 2.0) {
+                                isBlockCarried = 1;
+                                printf("Block Picked Up by Defender\n");
+                            }
+                        }
+                    }
+                    
+                    // 持っている間はプレイヤーの目の前に移動させる
+                    if (isBlockCarried) {
+                        blockX = (int)(clients[id].x + cos(clients[id].angle) * 2.0);
+                        blockY = (int)(clients[id].y + sin(clients[id].angle) * 2.0);
+                        // マップ範囲外チェック（簡易）
+                        if(blockX < 1) blockX = 1; if(blockX > 22) blockX = 22;
+                        if(blockY < 1) blockY = 1; if(blockY > 22) blockY = 22;
+                    }
                 }
 
-                // --- フェーズごとの処理 ---
                 if (currentGameState == GS_PLAYING) {
-                    // 戦闘中のみダメージ判定
+                    // 扉への攻撃チェック (ブロック座標 blockX, blockY を使う必要はない。
+                    // クライアント側でID:9を判定して送ってくるため、ここでは単純にダメージ処理)
                     if (clients[id].role == 0 && (in->btn & 2)) {
                         if (doorHP > 0) doorHP -= 10;
                     }
+                    // 敵への攻撃
                     if (clients[enemyId].active && clients[enemyId].hp > 0) {
                         if (in->btn & 8) clients[enemyId].hp -= 40; 
                         else if (in->btn & 4) clients[enemyId].hp -= 15; 
                         if (clients[enemyId].hp < 0) clients[enemyId].hp = 0;
                     }
-
-                    // 勝利判定: 扉破壊
                     if (doorHP <= 0) currentGameState = GS_WIN_ATTACKER;
-                    // ※死亡による勝利判定はリスポーン実装時に削除または変更する必要がありますが、今は残しておきます
                 }
 
-                // 返信
+                clients[id].last_btn = in->btn; // ボタン状態保存
+
                 server_pkt_t out;
                 out.role = clients[id].role;
                 out.doorHP = doorHP;
                 out.gameState = currentGameState;
                 out.selfHP = clients[id].hp;
-                out.remainingTime = remaining; // 残り時間を送信
+                out.remainingTime = remaining;
+                out.blockX = blockX; // ★送信
+                out.blockY = blockY; // ★送信
                 
                 if (clients[enemyId].active) {
                     out.x = clients[enemyId].x;
