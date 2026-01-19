@@ -27,8 +27,8 @@
 #define RELOAD_TIME 60
 
 //追加
-#define SKILL1_COOLDOWN 8.0    /* F1: ヒールのクールダウン */
-#define SKILL2_COOLDOWN 12.0   /* F2: シールドのクールダウン */
+#define SKILL1_COOLDOWN 15.0    /* F1: ヒールのクールダウン */
+#define SKILL2_COOLDOWN 20.0   /* F2: シールドのクールダウン */
 
 #pragma pack(push,1)
 typedef struct {
@@ -154,9 +154,10 @@ int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture
     return 0;
 }
 
-//追加double ~sheild remain
-void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAmmo, int isReloading, const char* hitMsg, int hitTimer, int hp, int maxHp,  double skill1_cd, double skill2_cd, double shield_remain) {
-    // 1. 照準（クロスヘア）の描画
+    //追加double ~sheild remain
+    void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAmmo, int isReloading, const char* hitMsg, int hitTimer, int hp, int maxHp,  double skill1_cd, double skill2_cd, double shield_remain) {
+    
+        // 1. 照準（クロスヘア）の描画
     SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
     int cx = SCREEN_WIDTH / 2, cy = SCREEN_HEIGHT / 2;
     SDL_RenderDrawLine(ren, cx - 10, cy, cx + 10, cy);
@@ -197,6 +198,7 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         sprintf(hpText, "%d/%d", hp, maxHp);
         draw_text_bg(ren, font, hpText, barX + barWidth + 10, barY, white, transparent);
     }
+    
     //追加
     // --- スキルUI: 左下に F1/F2 表示とクールダウン ---
     int sx = 20;
