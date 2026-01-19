@@ -1,5 +1,7 @@
 #include "player.h"
 #include <math.h>
+#include <string.h> //追加
+#include <SDL2/SDL.h> //追加
 
 // プレイヤーを初期化する
 void player_init(Player* player) {
@@ -12,6 +14,9 @@ void player_init(Player* player) {
 
     player->maxHp = 100; // 最大hpを100に設定
     player->hp = 100;
+
+    player->shield_active = 0; //追加
+    player->shield_timer = 0.0f; //追加
 }
 
 // キーボード入力に応じてプレイヤーを動かす
@@ -44,3 +49,17 @@ void player_handle_input(Player* player, const Uint8* key_state, double deltaTim
     }
     // TODO: ストレイフ（左右平行移動）も追加すると良い
 }
+
+    /* "追加"ダメージ処理：シールドが有効ならダメージを無効化 */
+int player_take_damage(Player* player, int dmg) {
+    if (!player) return 0;
+    if (player->shield_active && player->shield_timer > 0.0f) {
+        SDL_Log("Damage prevented by shield (dmg=%d). HP=%d/%d", dmg, player->hp, player->maxHp);
+        return 0;
+    }
+    player->hp -= dmg;
+    if (player->hp < 0) player->hp = 0;
+    SDL_Log("Player took %d damage. HP=%d/%d", dmg, player->hp, player->maxHp);
+    return 1;
+}
+//追加ここまで
