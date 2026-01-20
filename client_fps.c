@@ -145,20 +145,59 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
             else                       { sideDistY += deltaDistY; mapY += stepY; side = 1; }
             if (worldMap[mapX][mapY] > 0) { hit = 1; hitType = worldMap[mapX][mapY]; }
         }
+        
         if (hitType == 9 && doorHP <= 0) { zBuffer[x] = 1000.0; continue; }
+
         double perpWallDist = (side == 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
         zBuffer[x] = perpWallDist;
+
+        // 壁の本来の高さを計算
         int lineHeight = (int)(SCREEN_HEIGHT / (perpWallDist * cos(rayAngle - player->angle)));
-        int drawStart = -lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
-        int drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
+        
+        int drawStart, drawEnd;
+
+        // ★ここが変更点！ ブロック(9)の場合は高さを調整する
+        if (hitType == 9) {
+            // ブロックの高さ倍率（0.5 = 半分の高さ。ここを変えると大きさが変わる）
+            float blockScale = 0.5f; 
+            int blockHeight = (int)(lineHeight * blockScale);
+            
+            // 本来の壁の下端（地面の位置）を計算
+            drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
+            // 下端からブロックの高さ分だけ上を計算
+            drawStart = drawEnd - blockHeight;
+
+        } else {
+            // 通常の壁
+            drawStart = -lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
+            drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
+        }
+
+        // 画面外にはみ出さないようにクリップ処理（念のため追加）
+        if (drawStart < 0) drawStart = 0;
+        if (drawEnd >= SCREEN_HEIGHT) drawEnd = SCREEN_HEIGHT - 1;
+
         if (hitType == 9) { 
              if (side == 1) SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255);
              else           SDL_SetRenderDrawColor(renderer, 0, 0, 200, 255);
         } else { 
-             int colorVal = (side == 1) ? 100 : 160;
-             SDL_SetRenderDrawColor(renderer, colorVal, colorVal, colorVal, 255);
+             // 壁の色分けロジックを少し整理
+             int colorR = 160, colorG = 160, colorB = 160;
+             if (hitType == 2) { colorR=50; colorG=50; colorB=200; } // 青柱
+             else if (hitType == 3) { colorR=200; colorG=50; colorB=50; } // 赤柱
+             else if (hitType == 4) { colorR=150; colorG=100; colorB=50; } // 木の壁
+             
+             if (side == 1) { // 影をつける
+                 colorR = colorR * 2 / 3;
+                 colorG = colorG * 2 / 3;
+                 colorB = colorB * 2 / 3;
+             }
+             SDL_SetRenderDrawColor(renderer, colorR, colorG, colorB, 255);
         }
-        SDL_RenderDrawLine(renderer, x, drawStart, x, drawEnd);
+        // 線を描画（クリップしたので安全）
+        if (drawEnd > drawStart) {
+            SDL_RenderDrawLine(renderer, x, drawStart, x, drawEnd);
+        }
     }
 }
 
@@ -516,9 +555,9 @@ int main(int argc, char **argv) {
              // ★初期位置設定（役割が決まったら一度だけ飛ぶ）
              if (!initialPosSet && myRole != -1) {
                  if (myRole == 0) { // Attacker -> 左上
-                     player.x = 2.0; player.y = 2.0; 
+                     player.x = 1.5; player.y = 1.5; 
                  } else { // Defender -> 右下
-                     player.x = 20.0; player.y = 20.0; 
+                     player.x = 20.5; player.y = 20.5; 
                      player.angle = M_PI; // 向きを反転
                  }
                  initialPosSet = 1;
@@ -533,8 +572,8 @@ int main(int argc, char **argv) {
                  wasDead = 1;
              } else if (wasDead) {
                  wasDead = 0;
-                 if (myRole == 0) { player.x = 2.0; player.y = 2.0; }
-                 else             { player.x = 20.0; player.y = 20.0; }
+                 if (myRole == 0) { player.x = 1.5; player.y = 1.5; }
+                 else             { player.x = 20.5; player.y = 20.5; }
              }
 
              update_block_position(in.blockX, in.blockY);
