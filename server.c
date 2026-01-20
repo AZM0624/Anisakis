@@ -7,6 +7,9 @@
 #include <time.h>
 #include <math.h> 
 
+// ★ここが重要：skill.cの関数を使うためにインクルード
+#include "skill.h" 
+
 #define PORT 12345
 #define BUF_SIZE 512
 #define MAX_DOOR_HP 1000
@@ -15,6 +18,9 @@
 #define RESPAWN_TIME_ATTACKER 10
 #define RESPAWN_TIME_DEFENDER 5
 
+#define TIME_SETUP 60
+#define TIME_MATCH 120
+
 #define GS_WAITING 0
 #define GS_COUNTDOWN 1
 #define GS_SETUP 5
@@ -22,13 +28,10 @@
 #define GS_WIN_ATTACKER 3
 #define GS_WIN_DEFENDER 4
 
-#define TIME_SETUP 60
-#define TIME_MATCH 120
-
-// ★追加: サーバー側でも壁判定をするためにマップデータを持つ
 #define MAP_WIDTH 24
 #define MAP_HEIGHT 24
 
+// マップデータ（サーバー側）
 // 0=床, 1=外壁, 2=柱(青), 3=柱(赤), 4=壁(木), 9=破壊目標
 int worldMap[MAP_WIDTH][MAP_HEIGHT] = {
     // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
@@ -80,6 +83,7 @@ typedef struct {
     int blockX;
     int blockY;
     int respawnTime; 
+    int skill1_remain; // スキル1の残り待ち時間
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -92,6 +96,7 @@ struct Client {
     int hp;
     uint8_t last_btn; 
     time_t deadTime;
+    time_t skill1_usedTime; // スキル使用時刻
 };
 
 struct Client clients[2]; 
@@ -114,6 +119,7 @@ void init_game() {
     for(int i=0; i<2; i++) {
         clients[i].hp = MAX_PLAYER_HP;
         clients[i].deadTime = 0; 
+        clients[i].skill1_usedTime = 0;
         clients[i].last_btn = 0;
         if (clients[i].active) {
             clients[i].role = (i == attacker_id) ? 0 : 1;
@@ -193,6 +199,7 @@ int main() {
                 if(difftime(now, clients[i].deadTime) >= interval) {
                     clients[i].hp = MAX_PLAYER_HP;
                     clients[i].deadTime = 0;
+                    clients[i].skill1_usedTime = 0;
                     printf("Player %d Respawned!\n", i);
                 }
             }
@@ -252,26 +259,39 @@ int main() {
                         }
                     }
                     if (isBlockCarried) {
-                        // 目の前の座標を計算
                         int tx = (int)(clients[id].x + cos(clients[id].angle) * 2.0);
                         int ty = (int)(clients[id].y + sin(clients[id].angle) * 2.0);
-                        
-                        // マップ範囲内チェック
                         if(tx < 1) tx = 1; if(tx > 22) tx = 22;
                         if(ty < 1) ty = 1; if(ty > 22) ty = 22;
-
-                        // ★追加: 壁（0以外）がある場所には移動させない！
-                        if (worldMap[tx][ty] == 0) {
-                            blockX = tx;
-                            blockY = ty;
-                        } else {
-                            // 壁なら更新しない（前回位置に留まる）
-                        }
+                        if (worldMap[tx][ty] == 0) { blockX = tx; blockY = ty; }
                     }
                 }
 
                 if (currentGameState == GS_PLAYING) {
                     if (clients[id].hp > 0) {
+                        
+                        // ★ここが修正ポイント：skill.cの共通関数を使ってHP計算
+                        if ((in->btn & 64) && !(clients[id].last_btn & 64)) {
+                            // クールタイム（skill.hで定義した定数を使用）
+                            int ct = (clients[id].role == 0) ? SKILL_HEAL_CT : SKILL_REPAIR_CT;
+                            int passed = (int)difftime(now, clients[id].skill1_usedTime);
+                            
+                            if (clients[id].skill1_usedTime == 0 || passed >= ct) {
+                                clients[id].skill1_usedTime = now;
+                                
+                                if (clients[id].role == 0) {
+                                    // アタッカー: 自己治療 (汎用関数)
+                                    skill_logic_heal_generic(&clients[id].hp, MAX_PLAYER_HP, 40);
+                                    printf("Attacker P%d used Skill: Heal\n", id);
+                                } else {
+                                    // ディフェンダー: ドア補強 (汎用関数)
+                                    skill_logic_repair_generic(&doorHP, MAX_DOOR_HP);
+                                    printf("Defender P%d used Skill: Repair\n", id);
+                                }
+                            }
+                        }
+
+                        // 通常攻撃
                         if (clients[id].role == 0 && (in->btn & 2)) {
                             if (doorHP > 0) doorHP -= 10;
                         }
@@ -285,7 +305,7 @@ int main() {
                                 if (clients[enemyId].hp <= 0) {
                                     clients[enemyId].hp = 0;
                                     clients[enemyId].deadTime = time(NULL); 
-                                    printf("Player %d Killed! Respawn started.\n", enemyId);
+                                    printf("Player %d Killed!\n", enemyId);
                                 }
                             }
                         }
@@ -312,13 +332,20 @@ int main() {
                     if (out.respawnTime < 0) out.respawnTime = 0;
                 }
 
+                out.skill1_remain = 0;
+                if (clients[id].skill1_usedTime > 0) {
+                    int ct = (clients[id].role == 0) ? SKILL_HEAL_CT : SKILL_REPAIR_CT;
+                    int passed = (int)difftime(now, clients[id].skill1_usedTime);
+                    out.skill1_remain = ct - passed;
+                    if (out.skill1_remain < 0) out.skill1_remain = 0;
+                }
+
                 if (clients[enemyId].active) {
                     out.x = clients[enemyId].x;
                     out.y = clients[enemyId].y;
                     out.angle = clients[enemyId].angle;
                     if (clients[enemyId].deadTime > 0) out.active = 0; 
                     else out.active = 1;
-                    
                     out.enemyHP = clients[enemyId].hp;
                 } else {
                     out.active = 0;

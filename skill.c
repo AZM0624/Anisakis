@@ -3,7 +3,6 @@
 #include <math.h>
 #include <stdio.h>
 
-/* 追加*/
 #define SKILL_HEAL_AMOUNT 40
 #define SKILL_SHIELD_DURATION 5.0f
 
@@ -23,7 +22,6 @@ void skill_shield_activate(Player* p)
     SDL_Log("Skill: Shield activated for %.1f seconds", SKILL_SHIELD_DURATION);
 }
 
-/* 毎フレーム呼ぶ。Player のシールドタイマーを減らす */
 void skill_update(Player* p, float dt)
 {
     if (!p) return;
@@ -48,17 +46,13 @@ float skill_get_shield_time_remaining(const Player* p)
     if (!p) return 0.0f;
     return p->shield_timer;
 }
-//ここまで追加
 
 void skill_escudo(Player* player) {
-    // 目の前2.0タイル先の座標を計算
     double distance = 2.0;
     int targetX = (int)(player->x + cos(player->angle) * distance);
     int targetY = (int)(player->y + sin(player->angle) * distance);
 
-    // マップ範囲であるか確認
     if (targetX >= 0 && targetX < MAP_WIDTH && targetY >= 0 && targetY < MAP_HEIGHT) {
-        // 何もない場所なら₍0₎ならエスクード₍2₎を設置
         if (worldMap[targetX][targetY] == 0) {
             worldMap[targetX][targetY] = 2;
             printf("Escudo activated at (%d, %d)\n", targetX, targetY);
@@ -66,4 +60,28 @@ void skill_escudo(Player* player) {
             printf("Cannot place Escudo here (Blocked).\n");
         }
     }
+}
+// 汎用回復ロジック
+// サーバー側で呼ぶときは skill_logic_heal_generic(&clients[id].hp, 100, 40); のように使います
+void skill_logic_heal_generic(int* hp, int max_hp, int heal_amount) {
+    if (!hp) return;
+    if (*hp <= 0) return; // 死亡時は回復不可
+
+    int old_hp = *hp;
+    *hp += heal_amount;
+    if (*hp > max_hp) *hp = max_hp;
+
+    printf("[Skill Logic] Heal: %d -> %d\n", old_hp, *hp);
+}
+
+// 汎用修理ロジック
+void skill_logic_repair_generic(int* object_hp, int max_object_hp) {
+    if (!object_hp) return;
+    if (*object_hp <= 0) return; // 破壊済みなら直せない
+
+    int old_hp = *object_hp;
+    *object_hp += SKILL_REPAIR_AMOUNT; // skill.hで定義した値(50)
+    if (*object_hp > max_object_hp) *object_hp = max_object_hp;
+
+    printf("[Skill Logic] Repair: %d -> %d\n", old_hp, *object_hp);
 }
