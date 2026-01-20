@@ -15,8 +15,12 @@
 #include "player.h"
 #include "skill.h" 
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // ★★★ サーバーPCのIPアドレスに書き換えてください ★★★
-#define SERVER_IP "192.168.1.130" 
+#define SERVER_IP "192.168.1.151" 
 
 #define SERVER_PORT 12345
 #define BUF_SIZE 512
@@ -31,7 +35,6 @@
 #define FIRE_ANIM_TIME 15
 #define FLASH_DURATION 10
 
-// ★追加: 物理定数
 #define GRAVITY 15.0      
 #define JUMP_POWER 4.0    
 #define PITCH_SCALE 150.0 
@@ -62,8 +65,9 @@ typedef struct {
     int selfHP;     
     int enemyHP;    
     int remainingTime;
-    int blockX; // ★追加
-    int blockY; // ★追加
+    int blockX; 
+    int blockY; 
+    int respawnTime; 
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -82,15 +86,12 @@ int make_socket_nonblocking(int s) {
     return fcntl(s, F_SETFL, flags | O_NONBLOCK);
 }
 
-// ★追加: マップ上のブロック位置を更新する関数
 void update_block_position(int tx, int ty) {
-    // まずマップから既存の9を消す
     for(int x=0; x<MAP_WIDTH; x++) {
         for(int y=0; y<MAP_HEIGHT; y++) {
             if(worldMap[x][y] == 9) worldMap[x][y] = 0;
         }
     }
-    // 新しい位置に9を置く (範囲チェック付き)
     if(tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT) {
         worldMap[tx][ty] = 9;
     }
@@ -138,23 +139,18 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
         else             { stepX = 1;  sideDistX = (mapX + 1.0 - player->x) * deltaDistX; }
         if (rayDirY < 0) { stepY = -1; sideDistY = (player->y - mapY) * deltaDistY; }
         else             { stepY = 1;  sideDistY = (mapY + 1.0 - player->y) * deltaDistY; }
-        int hit = 0, side = 0;
-        int hitType = 0;
+        int hit = 0, side = 0; int hitType = 0;
         while (hit == 0) {
             if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
             else                       { sideDistY += deltaDistY; mapY += stepY; side = 1; }
             if (worldMap[mapX][mapY] > 0) { hit = 1; hitType = worldMap[mapX][mapY]; }
         }
-        
         if (hitType == 9 && doorHP <= 0) { zBuffer[x] = 1000.0; continue; }
-
         double perpWallDist = (side == 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
         zBuffer[x] = perpWallDist;
-
         int lineHeight = (int)(SCREEN_HEIGHT / (perpWallDist * cos(rayAngle - player->angle)));
         int drawStart = -lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
         int drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
-
         if (hitType == 9) { 
              if (side == 1) SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255);
              else           SDL_SetRenderDrawColor(renderer, 0, 0, 200, 255);
@@ -242,7 +238,7 @@ int get_target_block(Player* player) {
 }
 
 void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAmmo, int isReloading, 
-             int myRole, int doorHP, int gameState, int selfHP, int remainingTime) {
+             int myRole, int doorHP, int gameState, int selfHP, int remainingTime, int respawnTime) {
     SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
     SDL_RenderDrawLine(ren, SCREEN_WIDTH/2 - 10, SCREEN_HEIGHT/2, SCREEN_WIDTH/2 + 10, SCREEN_HEIGHT/2);
     SDL_RenderDrawLine(ren, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 10);
@@ -273,6 +269,19 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
 
     char msg[64];
     
+    if (respawnTime > 0) {
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(ren, 50, 0, 0, 180); 
+        SDL_Rect screen = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
+        SDL_RenderFillRect(ren, &screen);
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+
+        sprintf(msg, "RESPAWN IN %d", respawnTime);
+        draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH/2 - 150, SCREEN_HEIGHT/2 - 50, white, bgCol);
+        draw_text_bg(ren, font, "YOU ARE DEAD", SCREEN_WIDTH/2 - 80, SCREEN_HEIGHT/2 - 100, red, bgCol);
+        return;
+    }
+
     if (gameState == GS_WAITING) {
         draw_text_bg(ren, fontBig, "Waiting for Player...", SCREEN_WIDTH/2 - 200, SCREEN_HEIGHT/2 - 50, white, bgCol);
         draw_text_bg(ren, font, "(Press P to Force Start)", SCREEN_WIDTH/2 - 120, SCREEN_HEIGHT/2 + 20, white, bgCol);
@@ -289,7 +298,8 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         if (myRole == 1) {
             draw_text_bg(ren, font, "DEFENDER: Move Block [F]", SCREEN_WIDTH/2 - 150, 80, blue, bgCol);
         } else {
-            draw_text_bg(ren, font, "ATTACKER: Wait...", SCREEN_WIDTH/2 - 100, 80, red, bgCol);
+            // ★変更: アタッカーは動けないことを明示
+            draw_text_bg(ren, font, "ATTACKER: Wait... (Locked)", SCREEN_WIDTH/2 - 120, 80, red, bgCol);
         }
     } else if (gameState == GS_PLAYING) {
         sprintf(msg, "TIME: %d", remainingTime);
@@ -366,8 +376,13 @@ int main(int argc, char **argv) {
     int enemyHP = MAX_PLAYER_HP;
     int hitTargetStatus = 0; 
     int remainingTime = 0; 
+    int respawnTime = 0; 
+    int wasDead = 0; 
     int forceStart = 0; 
-    int sendFKey = 0; // ★Fキー送信フラグ
+    int sendFKey = 0; 
+    
+    // ★初期位置セットフラグ
+    int initialPosSet = 0;
 
     while (running) {
         Uint64 NOW = SDL_GetPerformanceCounter();
@@ -384,7 +399,12 @@ int main(int argc, char **argv) {
                 }
             }
             
-            if ((gameState == GS_PLAYING || gameState == GS_SETUP) && selfHP > 0) {
+            // ★操作許可判定: 試合中 OR (セットアップ中かつDefender)
+            int canControl = 0;
+            if (gameState == GS_PLAYING) canControl = 1;
+            else if (gameState == GS_SETUP && myRole == 1) canControl = 1;
+
+            if (canControl && selfHP > 0 && respawnTime == 0) {
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_J) {
                     if (!isReloading && currentAmmo > 0) {
                         isFiring = FIRE_ANIM_TIME; 
@@ -396,7 +416,6 @@ int main(int argc, char **argv) {
                     if (player.z <= 0) player.vz = JUMP_POWER;
                 }
 
-                // ★Fキー (ブロック持ち運び)
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F) {
                     sendFKey = 1;
                 }
@@ -407,7 +426,12 @@ int main(int argc, char **argv) {
             }
         }
 
-        if ((gameState == GS_PLAYING || gameState == GS_SETUP) && selfHP > 0) {
+        // ★移動許可判定
+        int canMove = 0;
+        if (gameState == GS_PLAYING) canMove = 1;
+        else if (gameState == GS_SETUP && myRole == 1) canMove = 1;
+
+        if (canMove && selfHP > 0 && respawnTime == 0) {
             int mouseX, mouseY;
             SDL_GetRelativeMouseState(&mouseX, &mouseY);
             player.angle += mouseX * 0.005; 
@@ -457,7 +481,7 @@ int main(int argc, char **argv) {
         draw_walls(ren, &player, doorHP); 
         hitTargetStatus = draw_enemy(ren, &player, &enemy, enemyTex, enemyHP);
 
-        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime);
+        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime, respawnTime);
 
         SDL_RenderPresent(ren);
 
@@ -467,7 +491,7 @@ int main(int argc, char **argv) {
         out.btn = 0;
         
         if (forceStart) { out.btn |= 16; forceStart = 0; }
-        if (sendFKey) { out.btn |= 32; sendFKey = 0; } // ★Fキー送信(bit 5)
+        if (sendFKey) { out.btn |= 32; sendFKey = 0; } 
         
         if (isFiring == FIRE_ANIM_TIME) {
             out.btn |= 1; 
@@ -488,11 +512,31 @@ int main(int argc, char **argv) {
              doorHP = in.doorHP;
              myRole = in.role;
              gameState = in.gameState;
+             
+             // ★初期位置設定（役割が決まったら一度だけ飛ぶ）
+             if (!initialPosSet && myRole != -1) {
+                 if (myRole == 0) { // Attacker -> 左上
+                     player.x = 2.0; player.y = 2.0; 
+                 } else { // Defender -> 右下
+                     player.x = 20.0; player.y = 20.0; 
+                     player.angle = M_PI; // 向きを反転
+                 }
+                 initialPosSet = 1;
+             }
+
              selfHP = in.selfHP;
              enemyHP = in.enemyHP;
              remainingTime = in.remainingTime;
              
-             // ★受信したブロック位置でマップ更新
+             respawnTime = in.respawnTime;
+             if (respawnTime > 0) {
+                 wasDead = 1;
+             } else if (wasDead) {
+                 wasDead = 0;
+                 if (myRole == 0) { player.x = 2.0; player.y = 2.0; }
+                 else             { player.x = 20.0; player.y = 20.0; }
+             }
+
              update_block_position(in.blockX, in.blockY);
         }
         

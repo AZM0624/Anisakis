@@ -3,6 +3,10 @@
 #include <string.h> //追加
 #include <SDL2/SDL.h> //追加
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // プレイヤーを初期化する
 void player_init(Player* player) {
     player->x = 12.0f; // マップの中央付近 (2Dマップ上の座標)
