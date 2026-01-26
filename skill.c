@@ -3,15 +3,44 @@
 #include <math.h>
 #include <stdio.h>
 
-#define SKILL_HEAL_AMOUNT 40
 #define SKILL_SHIELD_DURATION 5.0f
+
+#define DASH_DURATION 5.0f
+#define DASH_COOLDOWN 20.0f
+
+#define STEALTH_DURATION 3.0f
+#define STEALTH_COOLDOWN 30.0f
 
 void skill_heal(Player* p)
 {
     if (!p) return;
-    p->hp += SKILL_HEAL_AMOUNT;
-    if (p->hp > p->maxHp) p->hp = p->maxHp;
-    SDL_Log("Skill: Heal applied (+%d). Current HP: %d/%d", SKILL_HEAL_AMOUNT, p->hp, p->maxHp);
+
+    p->hp = p->maxHp; 
+    SDL_Log("Skill: Full Heal applied. Current HP: %d/%d", p->hp, p->maxHp);
+}
+
+void skill_dash(Player* p)
+{
+    if (!p) return;
+    if (p->dash_cooldown > 0.0f) return;
+
+    p->dash_active = 1;
+    p->dash_timer = DASH_DURATION;
+    p->dash_cooldown = DASH_COOLDOWN;
+
+    SDL_Log("Skill: Dash activated");
+}
+
+void skill_stealth(Player* p)
+{
+    if (!p) return;
+    if (p->stealth_cooldown > 0.0f) return;
+
+    p->stealth_active = 1;
+    p->stealth_timer = STEALTH_DURATION;
+    p->stealth_cooldown = STEALTH_COOLDOWN;
+
+    SDL_Log("Skill: Stealth activated");
 }
 
 void skill_shield_activate(Player* p)
@@ -25,6 +54,8 @@ void skill_shield_activate(Player* p)
 void skill_update(Player* p, float dt)
 {
     if (!p) return;
+
+    /* ---- シールド ---- */
     if (p->shield_timer > 0.0f) {
         p->shield_timer -= dt;
         if (p->shield_timer <= 0.0f) {
@@ -32,6 +63,33 @@ void skill_update(Player* p, float dt)
             p->shield_active = 0;
             SDL_Log("Skill: Shield expired");
         }
+    }
+
+    /* ---- ダッシュ ---- */
+    if (p->dash_active) {
+        p->dash_timer -= dt;
+        if (p->dash_timer <= 0.0f) {
+            p->dash_active = 0;
+            SDL_Log("Skill: Dash ended");
+        }
+    }
+    if (p->dash_cooldown > 0.0f) {
+        p->dash_cooldown -= dt;
+        if (p->dash_cooldown < 0.0f) p->dash_cooldown = 0.0f;
+    }
+
+    /* ---- ステルス ---- */
+    if (p->stealth_active) {
+        p->stealth_timer -= dt;
+        if (p->stealth_timer <= 0.0f) {
+            p->stealth_active = 0;
+            SDL_Log("Skill: Stealth ended");
+        }
+    }
+    if (p->stealth_cooldown > 0.0f) {
+        p->stealth_cooldown -= dt;
+        if (p->stealth_cooldown < 0.0f) p->stealth_cooldown = 0.0f;
+        
     }
 }
 
