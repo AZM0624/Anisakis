@@ -20,7 +20,7 @@
 #endif
 
 // ★★★ サーバーPCのIPアドレスに書き換えてください ★★★
-#define SERVER_IP "192.168.1.151" 
+#define SERVER_IP "192.168.1.130" 
 
 #define SERVER_PORT 12345
 #define BUF_SIZE 512
@@ -38,6 +38,10 @@
 #define GRAVITY 15.0      
 #define JUMP_POWER 4.0    
 #define PITCH_SCALE 150.0 
+
+// ★追加：しゃがみ機能用の定数
+#define CROUCH_DEPTH -1.5f      // しゃがんだ時の視点の深さ（マイナスで下がる）
+#define CROUCH_SPEED_RATE 0.5f  // しゃがみ時の移動速度倍率 (0.5 = 半分)
 
 #define GS_WAITING 0
 #define GS_COUNTDOWN 1
@@ -124,8 +128,12 @@ void draw_floor_ceiling(SDL_Renderer* renderer, int pitch) {
     SDL_RenderFillRect(renderer, &floor);
 }
 
-void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
-    int pitch = (int)(player->z * PITCH_SCALE);
+#define BLOCK_SCALE 1.0f 
+
+// ★変更: 引数に pitch を追加し、関数内での player->z 計算を削除
+void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP, int pitch) {
+    // int pitch = (int)(player->z * PITCH_SCALE); // ←これを削除し、引数の pitch を使う
+    
     for (int x = 0; x < SCREEN_WIDTH; x++) {
         double cameraX = (double)x / (double)SCREEN_WIDTH * 2.0 - 1.0;
         double rayAngle = player->angle + atan(cameraX * tan(player->fov / 2.0));
@@ -139,11 +147,31 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
         else             { stepX = 1;  sideDistX = (mapX + 1.0 - player->x) * deltaDistX; }
         if (rayDirY < 0) { stepY = -1; sideDistY = (player->y - mapY) * deltaDistY; }
         else             { stepY = 1;  sideDistY = (mapY + 1.0 - player->y) * deltaDistY; }
+        
         int hit = 0, side = 0; int hitType = 0;
+        
         while (hit == 0) {
             if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
             else                       { sideDistY += deltaDistY; mapY += stepY; side = 1; }
-            if (worldMap[mapX][mapY] > 0) { hit = 1; hitType = worldMap[mapX][mapY]; }
+            
+            hitType = worldMap[mapX][mapY];
+            if (hitType > 0) {
+                hit = 1;
+                if (hitType == 9) {
+                    double exactHitPos; 
+                    if (side == 0) {
+                        double rayY = player->y + rayDirY * (sideDistX - deltaDistX);
+                        exactHitPos = rayY - floor(rayY);
+                    } else {
+                        double rayX = player->x + rayDirX * (sideDistY - deltaDistY);
+                        exactHitPos = rayX - floor(rayX);
+                    }
+                    float margin = (1.0f - BLOCK_SCALE) / 2.0f;
+                    if (exactHitPos < margin || exactHitPos > (1.0f - margin)) {
+                        hit = 0; hitType = 0; 
+                    }
+                }
+            }
         }
         
         if (hitType == 9 && doorHP <= 0) { zBuffer[x] = 1000.0; continue; }
@@ -151,29 +179,18 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
         double perpWallDist = (side == 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
         zBuffer[x] = perpWallDist;
 
-        // 壁の本来の高さを計算
         int lineHeight = (int)(SCREEN_HEIGHT / (perpWallDist * cos(rayAngle - player->angle)));
-        
         int drawStart, drawEnd;
 
-        // ★ここが変更点！ ブロック(9)の場合は高さを調整する
         if (hitType == 9) {
-            // ブロックの高さ倍率（0.5 = 半分の高さ。ここを変えると大きさが変わる）
-            float blockScale = 0.5f; 
-            int blockHeight = (int)(lineHeight * blockScale);
-            
-            // 本来の壁の下端（地面の位置）を計算
+            int blockHeight = (int)(lineHeight * BLOCK_SCALE);
             drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
-            // 下端からブロックの高さ分だけ上を計算
             drawStart = drawEnd - blockHeight;
-
         } else {
-            // 通常の壁
             drawStart = -lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
             drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
         }
 
-        // 画面外にはみ出さないようにクリップ処理（念のため追加）
         if (drawStart < 0) drawStart = 0;
         if (drawEnd >= SCREEN_HEIGHT) drawEnd = SCREEN_HEIGHT - 1;
 
@@ -181,29 +198,26 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
              if (side == 1) SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255);
              else           SDL_SetRenderDrawColor(renderer, 0, 0, 200, 255);
         } else { 
-             // 壁の色分けロジックを少し整理
              int colorR = 160, colorG = 160, colorB = 160;
-             if (hitType == 2) { colorR=50; colorG=50; colorB=200; } // 青柱
-             else if (hitType == 3) { colorR=200; colorG=50; colorB=50; } // 赤柱
-             else if (hitType == 4) { colorR=150; colorG=100; colorB=50; } // 木の壁
-             
-             if (side == 1) { // 影をつける
-                 colorR = colorR * 2 / 3;
-                 colorG = colorG * 2 / 3;
-                 colorB = colorB * 2 / 3;
-             }
+             if (hitType == 2) { colorR=50; colorG=50; colorB=200; } 
+             else if (hitType == 3) { colorR=200; colorG=50; colorB=50; } 
+             else if (hitType == 4) { colorR=150; colorG=100; colorB=50; } 
+             if (side == 1) { colorR=colorR*2/3; colorG=colorG*2/3; colorB=colorB*2/3; }
              SDL_SetRenderDrawColor(renderer, colorR, colorG, colorB, 255);
         }
-        // 線を描画（クリップしたので安全）
+        
         if (drawEnd > drawStart) {
             SDL_RenderDrawLine(renderer, x, drawStart, x, drawEnd);
         }
     }
 }
 
-int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture* texture, int enemyHP) {
+// ★変更: 引数に pitch を追加し、関数内での player->z 計算を削除
+int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture* texture, int enemyHP, int pitch) {
     if (!enemy->active || enemyHP <= 0) return 0; 
-    int pitch = (int)(player->z * PITCH_SCALE);
+    
+    // int pitch = (int)(player->z * PITCH_SCALE); // ←削除
+    
     double spriteX = enemy->x - player->x;
     double spriteY = enemy->y - player->y;
     double angleToEnemy = atan2(spriteY, spriteX) - player->angle;
@@ -337,7 +351,6 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         if (myRole == 1) {
             draw_text_bg(ren, font, "DEFENDER: Move Block [F]", SCREEN_WIDTH/2 - 150, 80, blue, bgCol);
         } else {
-            // ★変更: アタッカーは動けないことを明示
             draw_text_bg(ren, font, "ATTACKER: Wait... (Locked)", SCREEN_WIDTH/2 - 120, 80, red, bgCol);
         }
     } else if (gameState == GS_PLAYING) {
@@ -423,6 +436,9 @@ int main(int argc, char **argv) {
     // ★初期位置セットフラグ
     int initialPosSet = 0;
 
+    // ★追加: しゃがみ状態管理変数
+    float crouch_val = 0.0f; 
+
     while (running) {
         Uint64 NOW = SDL_GetPerformanceCounter();
         double dt = (double)(NOW - LAST) / (double)SDL_GetPerformanceFrequency();
@@ -452,7 +468,8 @@ int main(int argc, char **argv) {
                 }
                 
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_SPACE) {
-                    if (player.z <= 0) player.vz = JUMP_POWER;
+                    // ★修正: しゃがんでいない(0.0に近い)時だけジャンプ可能
+                    if (player.z <= 0 && crouch_val > -0.1f) player.vz = JUMP_POWER;
                 }
 
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F) {
@@ -481,6 +498,16 @@ int main(int argc, char **argv) {
             if (key_state[SDL_SCANCODE_ESCAPE]) running = 0;
 
             float moveSpeed = 3.0 * dt;
+
+            // ★追加: しゃがみ処理 (左シフトキー判定)
+            float target_crouch = 0.0f;
+            if (key_state[SDL_SCANCODE_LSHIFT]) {
+                target_crouch = CROUCH_DEPTH;
+                moveSpeed *= CROUCH_SPEED_RATE; // しゃがみ中は速度低下
+            }
+            // スムーズに視点を変化させる (補間)
+            crouch_val += (target_crouch - crouch_val) * 10.0f * dt;
+
             if (key_state[SDL_SCANCODE_W]) {
                 float nx = player.x + cos(player.angle)*moveSpeed; float ny = player.y + sin(player.angle)*moveSpeed;
                 if(worldMap[(int)nx][(int)player.y]==0) player.x = nx; if(worldMap[(int)player.x][(int)ny]==0) player.y = ny;
@@ -514,11 +541,12 @@ int main(int argc, char **argv) {
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
         
-        int pitch = (int)(player.z * PITCH_SCALE);
+        // ★修正: pitchの計算 (ジャンプ高さ + しゃがみ高さ)
+        int pitch = (int)((player.z + crouch_val) * PITCH_SCALE);
         
         draw_floor_ceiling(ren, pitch); 
-        draw_walls(ren, &player, doorHP); 
-        hitTargetStatus = draw_enemy(ren, &player, &enemy, enemyTex, enemyHP);
+        draw_walls(ren, &player, doorHP, pitch); // 引数追加
+        hitTargetStatus = draw_enemy(ren, &player, &enemy, enemyTex, enemyHP, pitch); // 引数追加
 
         draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime, respawnTime);
 
