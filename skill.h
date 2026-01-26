@@ -14,6 +14,14 @@ float skill_get_shield_time_remaining(const Player* p);
 // 既存の SKILL_HEAL_AMOUNT (40) は skill.c で定義されていますが、
 // 他のスキルも合わせてここで管理する形に移行していくと便利です。
 
+/* ”追加”　スキル操作（main から呼ぶ） */
+void skill_heal(Player* p);                       /* F1: 即時回復 */
+void skill_shield_activate(Player* p);            /* F2: シールド開始（Player に設定） */
+void skill_dash(Player* p);                /* ダッシュ */
+void skill_stealth(Player* p);             /* ステルス */
+void skill_update(Player* p, float dt);                    /* 毎フレーム更新（タイマー消化） */
+
+
 #define SKILL_HEAL_CT 20        // 回復スキルのクールタイム(秒)
 
 #define SKILL_REPAIR_AMOUNT 50  // ドア修理量

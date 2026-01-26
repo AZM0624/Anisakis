@@ -21,11 +21,24 @@ void player_init(Player* player) {
 
     player->shield_active = 0; //追加
     player->shield_timer = 0.0f; //追加
+
+    player->dash_active = 0;
+    player->dash_timer = 0.0f;
+    player->dash_cooldown = 0.0f;
+
+    player->stealth_active = 0;
+    player->stealth_timer = 0.0f;
+    player->stealth_cooldown = 0.0f;
 }
 
 // キーボード入力に応じてプレイヤーを動かす
 void player_handle_input(Player* player, const Uint8* key_state, double deltaTime) {
     
+    double speed = player->moveSpeed;
+    if (player->dash_active) {
+    speed *= 1.5;
+}
+
     double moveStep = player->moveSpeed * deltaTime;
     double rotStep = player->rotSpeed * deltaTime;
 
@@ -53,17 +66,3 @@ void player_handle_input(Player* player, const Uint8* key_state, double deltaTim
     }
     // TODO: ストレイフ（左右平行移動）も追加すると良い
 }
-
-    /* "追加"ダメージ処理：シールドが有効ならダメージを無効化 */
-int player_take_damage(Player* player, int dmg) {
-    if (!player) return 0;
-    if (player->shield_active && player->shield_timer > 0.0f) {
-        SDL_Log("Damage prevented by shield (dmg=%d). HP=%d/%d", dmg, player->hp, player->maxHp);
-        return 0;
-    }
-    player->hp -= dmg;
-    if (player->hp < 0) player->hp = 0;
-    SDL_Log("Player took %d damage. HP=%d/%d", dmg, player->hp, player->maxHp);
-    return 1;
-}
-//追加ここまで

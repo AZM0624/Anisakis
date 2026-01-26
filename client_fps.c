@@ -46,6 +46,11 @@
 #define GS_WIN_ATTACKER 3
 #define GS_WIN_DEFENDER 4
 
+#define SKILL1_COOLDOWN 30.0   /* F1: ヒールのクールダウン */
+#define SKILL2_COOLDOWN 30.0   /* F2: シールドのクールダウン */
+#define SKILL3_COOLDOWN 20.0   // F3: ダッシュ
+#define SKILL4_COOLDOWN 30.0   // F4: ステルス
+
 #pragma pack(push,1)
 typedef struct {
     uint32_t seq;
@@ -201,8 +206,47 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
     }
 }
 
+void draw_skill_icon(SDL_Renderer* ren, TTF_Font* font,
+                     int x, int y, int size,
+                     const char* label, double cd,
+                     SDL_Color readyCol)
+{
+    SDL_Color white = {255,255,255,255};
+    SDL_Color transparent = {0,0,0,0};
+
+    if (cd > 0.01)
+        SDL_SetRenderDrawColor(ren, 80, 80, 80, 200);
+    else
+        SDL_SetRenderDrawColor(ren,
+            readyCol.r, readyCol.g, readyCol.b, 220);
+
+    SDL_Rect r = {x, y, size, size};
+    SDL_RenderFillRect(ren, &r);
+
+    SDL_SetRenderDrawColor(ren, 255,255,255,255);
+    SDL_RenderDrawRect(ren, &r);
+
+    // 1文字ラベル
+    draw_text_bg(ren, font, label,
+        x + size/2 - 6, y + 4,
+        white, transparent);
+
+    // クールダウン秒
+    if (cd > 0.01) {
+        char buf[8];
+        sprintf(buf, "%d", (int)ceil(cd));
+        draw_text_bg(ren, font, buf,
+            x + size/2 - 6, y + size - 14,
+            white, transparent);
+    }
+}
+
 int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture* texture, int enemyHP) {
     if (!enemy->active || enemyHP <= 0) return 0; 
+
+    // ★ ここでステルス中なら敵を描画しない
+    if (player->stealth_active) return 0;
+
     int pitch = (int)(player->z * PITCH_SCALE);
     double spriteX = enemy->x - player->x;
     double spriteY = enemy->y - player->y;
@@ -277,10 +321,73 @@ int get_target_block(Player* player) {
 }
 
 void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAmmo, int isReloading, 
-             int myRole, int doorHP, int gameState, int selfHP, int remainingTime, int respawnTime) {
+             int myRole, int doorHP, int gameState, int selfHP, int remainingTime, double skill1_cd, double skill2_cd,double skill3_cd,double skill4_cd, double shield_remain,int hp, int maxHp, const char* hitMsg, int hitTimer,int respawnTime) {
     SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
     SDL_RenderDrawLine(ren, SCREEN_WIDTH/2 - 10, SCREEN_HEIGHT/2, SCREEN_WIDTH/2 + 10, SCREEN_HEIGHT/2);
     SDL_RenderDrawLine(ren, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 10);
+    SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
+    SDL_RenderDrawLine(ren, SCREEN_WIDTH/2 - 10, SCREEN_HEIGHT/2, SCREEN_WIDTH/2 + 10, SCREEN_HEIGHT/2);
+    SDL_RenderDrawLine(ren, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 10);
+    
+        // 1. 照準（クロスヘア）の描画
+    SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
+    int cx = SCREEN_WIDTH / 2, cy = SCREEN_HEIGHT / 2;
+    SDL_RenderDrawLine(ren, cx - 10, cy, cx + 10, cy);
+    SDL_RenderDrawLine(ren, cx, cy - 10, cx, cy + 10);
+
+    // 2. HPバーの描画
+    int barWidth = 200;
+    int barHeight = 20;
+    int barX = 20;
+    int barY = SCREEN_HEIGHT - 40;
+
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color transparent = {0, 0, 0, 0};
+
+    // 背景（暗いグレー、完全不透明）
+    SDL_Rect bgRect = {barX, barY, barWidth, barHeight};
+    SDL_SetRenderDrawColor(ren, 50, 50, 50, 255); 
+    SDL_RenderFillRect(ren, &bgRect);
+    
+    if (font) {
+        // 文字 "HP"
+        draw_text_bg(ren, font, "HP", barX, barY - 30, white, transparent);
+        
+        // HP数値をテキストで表示
+        char hpText[32];
+        sprintf(hpText, "%d/%d", hp, maxHp);
+        draw_text_bg(ren, font, hpText, barX + barWidth + 10, barY, white, transparent);
+    }
+    
+// スキルUIを右下・1文字アイコン化
+int iconSize = 36;
+int padding  = 12;
+
+int anchorX = SCREEN_WIDTH - padding;
+int anchorY = padding;
+
+// 右から左
+draw_skill_icon(ren, font,
+    anchorX - (iconSize + padding) * 1,
+    anchorY, iconSize, "H", skill1_cd,
+    (SDL_Color){0,180,0,255});
+
+draw_skill_icon(ren, font,
+    anchorX - (iconSize + padding) * 2,
+    anchorY, iconSize, "S", skill2_cd,
+    (SDL_Color){50,120,255,255});
+
+draw_skill_icon(ren, font,
+    anchorX - (iconSize + padding) * 3,
+    anchorY, iconSize, "D", skill3_cd,
+    (SDL_Color){255,180,50,255});
+
+draw_skill_icon(ren, font,
+    anchorX - (iconSize + padding) * 4,
+    anchorY, iconSize, "T", skill4_cd,
+    (SDL_Color){180,100,255,255});
+
+    // 3. 銃と弾薬の描画
 
     int gunX = SCREEN_WIDTH - 200, gunY = SCREEN_HEIGHT - 150;
     if (gunTex) {
@@ -300,7 +407,6 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     }
 
-    SDL_Color white = {255, 255, 255, 255};
     SDL_Color red = {255, 50, 50, 255};
     SDL_Color blue = {100, 100, 255, 255};
     SDL_Color green = {50, 255, 50, 255};
@@ -423,6 +529,15 @@ int main(int argc, char **argv) {
     // ★初期位置セットフラグ
     int initialPosSet = 0;
 
+    double skill1_cd_timer = 0.0; 
+    double skill2_cd_timer = 0.0; 
+    double skill3_cd_timer = 0.0; 
+    double skill4_cd_timer = 0.0;
+
+    /* ★★★ HIT表示用（ここに追加）★★★ */
+   char hitMsg[64] = "";
+   int hitTimer = 0;
+
     while (running) {
         Uint64 NOW = SDL_GetPerformanceCounter();
         double dt = (double)(NOW - LAST) / (double)SDL_GetPerformanceFrequency();
@@ -459,6 +574,37 @@ int main(int argc, char **argv) {
                     sendFKey = 1;
                 }
 
+            // F2: シールド発動
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F2) {
+                if (skill2_cd_timer <= 0.0) {
+                    skill_shield_activate(&player);
+                    skill2_cd_timer = SKILL2_COOLDOWN;
+                } else {
+                    SDL_Log("F2 on cooldown: %.2f", skill2_cd_timer);
+                }
+            }
+
+            // F3: ダッシュ
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F3) {
+                if (skill3_cd_timer <= 0.0) {
+                    skill_dash(&player);
+                    skill3_cd_timer = SKILL3_COOLDOWN;
+                } else {
+                    SDL_Log("F3 on cooldown: %.2f", skill3_cd_timer);
+                }
+            }
+
+            // F4: ステルス
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F4) {
+                if (skill4_cd_timer <= 0.0) {
+                    skill_stealth(&player);
+                    skill4_cd_timer = SKILL4_COOLDOWN;
+                } else {
+                    SDL_Log("F4 on cooldown: %.2f", skill4_cd_timer);
+                    }
+                }
+
+            // スキル・エスクード（Eキー） 
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_E) {
                     skill_escudo(&player);
                 }
@@ -481,6 +627,10 @@ int main(int argc, char **argv) {
             if (key_state[SDL_SCANCODE_ESCAPE]) running = 0;
 
             float moveSpeed = 3.0 * dt;
+            if (player.dash_active) {
+                moveSpeed *= 1.5f;
+            }
+            
             if (key_state[SDL_SCANCODE_W]) {
                 float nx = player.x + cos(player.angle)*moveSpeed; float ny = player.y + sin(player.angle)*moveSpeed;
                 if(worldMap[(int)nx][(int)player.y]==0) player.x = nx; if(worldMap[(int)player.x][(int)ny]==0) player.y = ny;
@@ -510,6 +660,19 @@ int main(int argc, char **argv) {
              const Uint8 *key_state = SDL_GetKeyboardState(NULL);
              if (key_state[SDL_SCANCODE_ESCAPE]) running = 0;
         }
+        
+        if (skill1_cd_timer > 0.0) skill1_cd_timer -= dt;
+        if (skill2_cd_timer > 0.0) skill2_cd_timer -= dt;
+        if (skill3_cd_timer > 0.0) skill3_cd_timer -= dt;
+        if (skill4_cd_timer > 0.0) skill4_cd_timer -= dt;
+        
+        if (skill1_cd_timer < 0.0) skill1_cd_timer = 0.0;
+        if (skill2_cd_timer < 0.0) skill2_cd_timer = 0.0;
+        if (skill3_cd_timer < 0.0) skill3_cd_timer = 0.0;
+        if (skill4_cd_timer < 0.0) skill4_cd_timer = 0.0;
+
+        /* 追加 */
+        skill_update(&player, (float)dt);
 
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
@@ -520,7 +683,11 @@ int main(int argc, char **argv) {
         draw_walls(ren, &player, doorHP); 
         hitTargetStatus = draw_enemy(ren, &player, &enemy, enemyTex, enemyHP);
 
-        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime, respawnTime);
+        /* 追加*/
+        float shield_remain = skill_get_shield_time_remaining(&player);
+
+        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime, skill1_cd_timer, skill2_cd_timer, skill3_cd_timer,skill4_cd_timer,shield_remain, player.hp, player.maxHp, hitMsg, hitTimer,respawnTime);
+        if (hitTimer > 0) hitTimer--;
 
         SDL_RenderPresent(ren);
 
