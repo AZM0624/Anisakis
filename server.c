@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 199309L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,13 +15,13 @@
 #define BUF_SIZE 512
 #define MAX_DOOR_HP 1000
 #define MAX_PLAYER_HP 100
-#define MAX_WALL_HP 20 // エスクードの体力
+#define MAX_WALL_HP 20
 
 #define RESPAWN_TIME_ATTACKER 10
 #define RESPAWN_TIME_DEFENDER 5
 
-#define TIME_SETUP 30
-#define TIME_MATCH 150
+#define TIME_SETUP 60
+#define TIME_MATCH 120
 
 #define GS_WAITING 0
 #define GS_COUNTDOWN 1
@@ -77,6 +79,7 @@ struct Client {
     uint8_t is_stealth;
     int killCount;
     int isStunned;
+    double stunTimer; // ★追加: スタン残り時間管理用
 };
 
 struct Client clients[2]; 
@@ -86,6 +89,7 @@ int attacker_id = -1;
 
 int currentGameState = GS_WAITING;
 time_t phaseStartTime = 0;
+struct timespec lastTickTime; // 時間計測用
 
 int blockX = 8; 
 int blockY = 12; 
@@ -107,6 +111,7 @@ void init_game() {
         clients[i].is_stealth = 0;
         clients[i].killCount = 0;
         clients[i].isStunned = 0;
+        clients[i].stunTimer = 0.0;
         if (clients[i].active) {
             clients[i].role = (i == attacker_id) ? 0 : 1;
         }
@@ -114,11 +119,10 @@ void init_game() {
     
     currentGameState = GS_COUNTDOWN;
     phaseStartTime = time(NULL); 
+    clock_gettime(CLOCK_MONOTONIC, &lastTickTime);
     printf("Game Init! Attacker ID: %d\n", attacker_id);
 }
 
-// プレイヤーの視線先にあるブロックIDを取得する関数（サーバー版）
-// ヒットしたブロックの座標を hitX, hitY に格納して返す
 int get_player_target_block(int id, int* hitX, int* hitY) {
     float rayX = cos(clients[id].angle);
     float rayY = sin(clients[id].angle);
@@ -127,7 +131,6 @@ int get_player_target_block(int id, int* hitX, int* hitY) {
     int mapX = (int)x;
     int mapY = (int)y;
     
-    // DDAアルゴリズムの初期化
     float deltaDistX = (rayX == 0) ? 1e30 : fabs(1.0f / rayX);
     float deltaDistY = (rayY == 0) ? 1e30 : fabs(1.0f / rayY);
     float sideDistX, sideDistY;
@@ -138,7 +141,6 @@ int get_player_target_block(int id, int* hitX, int* hitY) {
     if (rayY < 0) { stepY = -1; sideDistY = (y - mapY) * deltaDistY; }
     else          { stepY = 1;  sideDistY = (mapY + 1.0f - y) * deltaDistY; }
     
-    // 最大20マス先までチェック
     for(int i=0; i<20; i++) {
         if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; }
         else                       { sideDistY += deltaDistY; mapY += stepY; }
@@ -154,7 +156,6 @@ int get_player_target_block(int id, int* hitX, int* hitY) {
     return 0;
 }
 
-// 2点間のレイキャスト（敵への射線チェック用）
 int raycast_hit_check(float x1, float y1, float x2, float y2, int* hitX, int* hitY) {
     float dx = x2 - x1;
     float dy = y2 - y1;
@@ -195,15 +196,23 @@ int main() {
     printf("Server Started on port %d\n", PORT);
     doorHP = MAX_DOOR_HP;
     currentGameState = GS_WAITING;
+    clock_gettime(CLOCK_MONOTONIC, &lastTickTime);
 
     while (1) {
         clilen = sizeof(cliaddr);
         ssize_t n = recvfrom(sock, buf, BUF_SIZE, 0, (struct sockaddr *)&cliaddr, &clilen);
 
+        // デルタタイム計算
+        struct timespec nowSpec;
+        clock_gettime(CLOCK_MONOTONIC, &nowSpec);
+        double dt = (nowSpec.tv_sec - lastTickTime.tv_sec) + (nowSpec.tv_nsec - lastTickTime.tv_nsec) / 1e9;
+        lastTickTime = nowSpec;
+
         time_t now = time(NULL);
         int timeElapsed = (int)difftime(now, phaseStartTime);
         int remaining = 0;
 
+        // ゲームステート進行
         if (currentGameState == GS_COUNTDOWN) {
             remaining = 3 - timeElapsed;
             if (remaining < 0) { currentGameState = GS_SETUP; phaseStartTime = now; remaining = TIME_SETUP; printf("Phase: SETUP\n"); }
@@ -215,12 +224,28 @@ int main() {
             if (remaining < 0) { currentGameState = GS_WIN_DEFENDER; remaining = 0; }
         }
 
+        // リスポーンとスタンタイマー管理
         for(int i=0; i<2; i++) {
-            if(clients[i].active && clients[i].deadTime > 0) {
-                int interval = (clients[i].role == 0) ? RESPAWN_TIME_ATTACKER : RESPAWN_TIME_DEFENDER;
-                if(difftime(now, clients[i].deadTime) >= interval) {
-                    clients[i].hp = MAX_PLAYER_HP; clients[i].deadTime = 0; clients[i].skill1_usedTime = 0;
-                    printf("Player %d Respawned!\n", i);
+            if(clients[i].active) {
+                // リスポーン
+                if (clients[i].deadTime > 0) {
+                    int interval = (clients[i].role == 0) ? RESPAWN_TIME_ATTACKER : RESPAWN_TIME_DEFENDER;
+                    if(difftime(now, clients[i].deadTime) >= interval) {
+                        clients[i].hp = MAX_PLAYER_HP; clients[i].deadTime = 0; clients[i].skill1_usedTime = 0;
+                        clients[i].isStunned = 0; clients[i].stunTimer = 0; // 復活時はスタン解除
+                        printf("Player %d Respawned!\n", i);
+                    }
+                }
+                
+                // スタン処理
+                if (clients[i].stunTimer > 0.0) {
+                    clients[i].stunTimer -= dt;
+                    clients[i].isStunned = 1;
+                    if (clients[i].stunTimer <= 0.0) {
+                        clients[i].stunTimer = 0.0;
+                        clients[i].isStunned = 0;
+                        printf("Player %d Stun Recovered\n", i);
+                    }
                 }
             }
         }
@@ -250,7 +275,7 @@ int main() {
 
             if (id != -1) {
                 clients[id].last_seen = time(NULL);
-                if (clients[id].deadTime == 0) {
+                if (clients[id].deadTime == 0 && !clients[id].isStunned) {
                     clients[id].x = in->x; clients[id].y = in->y; clients[id].angle = in->angle;
                 }
                 
@@ -260,7 +285,7 @@ int main() {
 
                 if (currentGameState == GS_WAITING && (in->btn & 16)) init_game();
 
-                if (currentGameState == GS_SETUP && clients[id].role == 1 && clients[id].hp > 0) {
+                if (currentGameState == GS_SETUP && clients[id].role == 1 && clients[id].hp > 0 && !clients[id].isStunned) {
                     if ((in->btn & 32) && !(clients[id].last_btn & 32)) {
                         if (isBlockCarried) isBlockCarried = 0;
                         else {
@@ -276,8 +301,8 @@ int main() {
                 }
 
                 if (currentGameState == GS_PLAYING) {
-                    if (clients[id].hp > 0) {
-                        // スキル使用 (Eキー)
+                    if (clients[id].hp > 0 && !clients[id].isStunned) {
+                        // スキルE
                         if ((in->btn & 64) && !(clients[id].last_btn & 64)) {
                             int ct = (clients[id].role == 0) ? SKILL_HEAL_CT : SKILL_REPAIR_CT;
                             int passed = (int)difftime(now, clients[id].skill1_usedTime);
@@ -287,15 +312,14 @@ int main() {
                                     skill_logic_heal_generic(&clients[id].hp, MAX_PLAYER_HP, 40);
                                 } else {
                                     if (clients[id].escudo_stock > 0) {
-                                        // ディフェンダー: 壁設置
                                         clients[id].skill1_usedTime = now;
-                                        skill_logic_repair_generic(&doorHP, MAX_DOOR_HP); // ついでにドアも修理
+                                        skill_logic_repair_generic(&doorHP, MAX_DOOR_HP);
                                         
                                         double dist = 2.0;
                                         int tx = (int)(clients[id].x + cos(clients[id].angle) * dist);
                                         int ty = (int)(clients[id].y + sin(clients[id].angle) * dist);
                                         if (tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT && worldMap[tx][ty] == 0) {
-                                            worldMap[tx][ty] = 8; // ID 8 = Escudo
+                                            worldMap[tx][ty] = 8;
                                             clients[id].active_wall_x = tx; 
                                             clients[id].active_wall_y = ty; 
                                             clients[id].active_wall_hp = MAX_WALL_HP; 
@@ -307,21 +331,33 @@ int main() {
                             }
                         }
 
-                        // ★修正: オブジェクト攻撃処理 (btn & 2)
-                        // ドア(9) または 壁(8) を狙っている場合
+                        // ★追加: Ultimate (Qキー)
+                        if ((in->btn & 128) && !(clients[id].last_btn & 128)) {
+                            // ディフェンダーのみ & 3キル以上
+                            if (clients[id].role == 1 && clients[id].killCount >= 3) {
+                                clients[id].killCount = 0; // ゲージ消費
+                                
+                                // 敵をスタンさせる (5秒間)
+                                if (clients[enemyId].active && clients[enemyId].hp > 0) {
+                                    clients[enemyId].stunTimer = 5.0;
+                                    clients[enemyId].isStunned = 1;
+                                    printf("Ultimate Activated! Player %d stunned Player %d\n", id, enemyId);
+                                }
+                            }
+                        }
+
+                        // 通常攻撃 (ドア/壁)
                         if (in->btn & 2) {
                             int hx, hy;
-                            // プレイヤーの視線先にあるブロックを取得
                             int hitBlock = get_player_target_block(id, &hx, &hy);
                             
                             if (hitBlock == 9) { // ドア
                                 if (doorHP > 0 && clients[id].role == 0) doorHP -= 10;
                             } 
-                            else if (hitBlock == 8) { // 壁 (Escudo)
-                                // 誰の壁か探してダメージを与える
+                            else if (hitBlock == 8) { // 壁
                                 for (int k = 0; k < 2; k++) {
                                     if (clients[k].active_wall_x == hx && clients[k].active_wall_y == hy) {
-                                        clients[k].active_wall_hp -= 40; // 攻撃ダメージ
+                                        clients[k].active_wall_hp -= 40;
                                         if (clients[k].active_wall_hp <= 0) {
                                             worldMap[hx][hy] = 0; 
                                             clients[k].active_wall_x = -1;
@@ -333,21 +369,19 @@ int main() {
                             }
                         }
 
-                        // 敵への攻撃処理
+                        // 対人攻撃
                         if (clients[enemyId].active && clients[enemyId].hp > 0) {
                             int damage = 0;
                             if (in->btn & 8) damage = 40; else if (in->btn & 4) damage = 15;
                             if (damage > 0) {
-                                // 射線チェック
                                 int hx, hy;
                                 int hitObj = raycast_hit_check(clients[id].x, clients[id].y, clients[enemyId].x, clients[enemyId].y, &hx, &hy);
                                 
-                                // 間に何もない(0)なら敵にダメージ
                                 if (hitObj == 0) {
                                     clients[enemyId].hp -= damage;
                                     if (clients[enemyId].hp <= 0) {
                                         clients[enemyId].hp = 0; clients[enemyId].deadTime = time(NULL);
-                                        clients[id].killCount++;
+                                        clients[id].killCount++; // キルカウント加算
                                         printf("Player %d Killed!\n", enemyId);
                                     }
                                 }
@@ -368,7 +402,6 @@ int main() {
                 out.isStunned = clients[id].isStunned;
                 out.is_stealth = clients[id].is_stealth;
                 
-                // エスクード同期
                 out.wallX = -1; out.wallY = -1;
                 if (clients[0].active_wall_x != -1) { 
                     out.wallX = clients[0].active_wall_x; out.wallY = clients[0].active_wall_y; 
