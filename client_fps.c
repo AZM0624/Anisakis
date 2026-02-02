@@ -20,7 +20,9 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+// ★★★ サーバーPCのIPアドレスに書き換えてください ★★★
 #define SERVER_IP "192.168.1.130" 
+
 #define SERVER_PORT 12345
 #define BUF_SIZE 512
 #define SCREEN_WIDTH 800
@@ -51,6 +53,8 @@
 #define SKILL4_COOLDOWN 30.0   /* F4: ステルス */
 
 #define BGM_FILENAME "bgm.mp3"
+// ★追加: SEファイル名
+#define SE_SHOT_FILENAME "se_shot.mp3"
 
 #pragma pack(push,1)
 typedef struct {
@@ -509,6 +513,12 @@ int main(int argc, char **argv) {
         Mix_VolumeMusic(64);    
     }
 
+    // ★追加: SEのロード
+    Mix_Chunk *seShot = Mix_LoadWAV(SE_SHOT_FILENAME);
+    if (!seShot) {
+        printf("Warning: Failed to load SE '%s'. Error: %s\n", SE_SHOT_FILENAME, Mix_GetError());
+    }
+
     SDL_SetRelativeMouseMode(SDL_TRUE);
 
     Player player; player_init(&player);
@@ -567,7 +577,12 @@ int main(int argc, char **argv) {
             if (isStunned) canControl = 0;
             if (canControl && selfHP > 0 && respawnTime == 0) {
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_J) {
-                    if (!isReloading && currentAmmo > 0) { isFiring = FIRE_ANIM_TIME; currentAmmo--; }
+                    if (!isReloading && currentAmmo > 0) {
+                        isFiring = FIRE_ANIM_TIME; 
+                        currentAmmo--;
+                        // ★追加: SE再生 (チャンネル-1で空いているチャンネルを自動選択)
+                        if (seShot) Mix_PlayChannel(-1, seShot, 0); 
+                    }
                 }
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_SPACE) {
                     if (player.z <= 0) player.vz = JUMP_POWER;
@@ -697,9 +712,7 @@ int main(int argc, char **argv) {
                  initialPosSet = 1;
              }
              selfHP = in.selfHP;
-             // ★修正箇所: UIの表示用HPを、サーバーから来た最新HPで更新する
              player.hp = in.selfHP; 
-             
              enemyHP = in.enemyHP;
              remainingTime = in.remainingTime;
              respawnTime = in.respawnTime;
@@ -717,7 +730,9 @@ int main(int argc, char **argv) {
         if (isFiring > 0) isFiring--;
     }
 
+    // ★終了処理
     if (bgm) Mix_FreeMusic(bgm);
+    if (seShot) Mix_FreeChunk(seShot); // 追加: SE解放
     Mix_CloseAudio();
     for(int i=0; i<8; i++) {
         if(texAttacker[i]) SDL_DestroyTexture(texAttacker[i]);
