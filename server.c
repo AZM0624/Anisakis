@@ -67,6 +67,7 @@ typedef struct {
     float x, y;
     float angle;
     uint8_t btn; 
+    uint8_t is_stealth;
 } pkt_t;
 #pragma pack(pop)
 
@@ -86,6 +87,7 @@ typedef struct {
     int skill1_remain; // スキル1の残り待ち時間
     int killCount;
     int isStunned;
+    int is_stealth;
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -108,6 +110,7 @@ struct Client {
 
     int killCount;
     time_t stunEndTime;
+    int is_stealth;
 };
 
 struct Client clients[2]; 
@@ -136,6 +139,7 @@ void init_game() {
 
         clients[i].killCount = 0;
         clients[i].stunEndTime = 0;
+        clients[i].is_stealth = 0;
 
         if (clients[i].active) {
             clients[i].role = (i == attacker_id) ? 0 : 1;
@@ -290,6 +294,7 @@ int main() {
                     clients[id].x = in->x;
                     clients[id].y = in->y;
                     clients[id].angle = in->angle;
+                    clients[id].is_stealth = in->is_stealth;
                 }
 
                 int enemyId = (id == 0) ? 1 : 0;
@@ -475,6 +480,7 @@ int main() {
                     out.active = 0;
                     out.enemyHP = 0;
                 }
+                out.is_stealth = clients[enemyId].is_stealth;
                 sendto(sock, &out, sizeof(out), 0, (struct sockaddr *)&cliaddr, clilen);
             }
         }

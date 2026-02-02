@@ -109,12 +109,14 @@ typedef struct {
     int skill1_remain; 
     int killCount;
     int isStunned;
+    int is_stealth;
 } server_pkt_t;
 #pragma pack(pop)
 
 typedef struct {
     float x, y, angle;
     int active;
+    int is_stealth;
 } Enemy;
 
 double zBuffer[SCREEN_WIDTH];
@@ -385,6 +387,7 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
     SDL_SetRenderDrawColor(ren, 50, 50, 50, 255); 
     SDL_RenderFillRect(ren, &bgRect);
     
+    /*
     if (font) {
         // 文字 "HP"
         draw_text_bg(ren, font, "HP", barX, barY - 30, white, transparent);
@@ -394,6 +397,7 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
         sprintf(hpText, "%d/%d", hp, maxHp);
         draw_text_bg(ren, font, hpText, barX + barWidth + 10, barY, white, transparent);
     }
+     */
     
 // スキルUIを右下・1文字アイコン化
 int iconSize = 36;
@@ -685,6 +689,7 @@ int main(int argc, char **argv) {
         }
     }
 }
+    
 
         // ★移動許可判定
         int canMove = 0;
