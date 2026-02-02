@@ -53,7 +53,6 @@
 #define SKILL4_COOLDOWN 30.0   /* F4: ステルス */
 
 #define BGM_FILENAME "bgm.mp3"
-// ★追加: SEファイル名
 #define SE_SHOT_FILENAME "se_shot.mp3"
 
 #pragma pack(push,1)
@@ -474,6 +473,7 @@ int main(int argc, char **argv) {
     srvaddr.sin_family = AF_INET; srvaddr.sin_port = htons(SERVER_PORT);
     inet_pton(AF_INET, SERVER_IP, &srvaddr.sin_addr);
 
+    // SDL初期化
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) return 1;
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
         printf("SDL_mixer Error: %s\n", Mix_GetError());
@@ -481,8 +481,10 @@ int main(int argc, char **argv) {
 
     IMG_Init(IMG_INIT_PNG); TTF_Init();
 
-    SDL_Window *win = SDL_CreateWindow("FPS Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
+    // ★変更: 全画面 + 自動スケール
+    SDL_Window *win = SDL_CreateWindow("FPS Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_FULLSCREEN_DESKTOP);
     SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
+    SDL_RenderSetLogicalSize(ren, SCREEN_WIDTH, SCREEN_HEIGHT);
 
     SDL_Texture* texAttacker[8];
     for(int i=0; i<8; i++) {
@@ -513,7 +515,7 @@ int main(int argc, char **argv) {
         Mix_VolumeMusic(64);    
     }
 
-    // ★追加: SEのロード
+    // SEのロード
     Mix_Chunk *seShot = Mix_LoadWAV(SE_SHOT_FILENAME);
     if (!seShot) {
         printf("Warning: Failed to load SE '%s'. Error: %s\n", SE_SHOT_FILENAME, Mix_GetError());
@@ -580,7 +582,6 @@ int main(int argc, char **argv) {
                     if (!isReloading && currentAmmo > 0) {
                         isFiring = FIRE_ANIM_TIME; 
                         currentAmmo--;
-                        // ★追加: SE再生 (チャンネル-1で空いているチャンネルを自動選択)
                         if (seShot) Mix_PlayChannel(-1, seShot, 0); 
                     }
                 }
@@ -730,9 +731,8 @@ int main(int argc, char **argv) {
         if (isFiring > 0) isFiring--;
     }
 
-    // ★終了処理
     if (bgm) Mix_FreeMusic(bgm);
-    if (seShot) Mix_FreeChunk(seShot); // 追加: SE解放
+    if (seShot) Mix_FreeChunk(seShot); 
     Mix_CloseAudio();
     for(int i=0; i<8; i++) {
         if(texAttacker[i]) SDL_DestroyTexture(texAttacker[i]);

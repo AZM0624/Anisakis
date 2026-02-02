@@ -19,7 +19,7 @@
 #define RESPAWN_TIME_DEFENDER 5
 
 #define TIME_SETUP 30
-#define TIME_MATCH 120
+#define TIME_MATCH 150
 
 #define GS_WAITING 0
 #define GS_COUNTDOWN 1
