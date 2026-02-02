@@ -21,6 +21,7 @@
 typedef struct {
     uint32_t seq;
     float x, y;
+    float angle;
     uint8_t btn;
 } pkt_t;
 #pragma pack(pop)
@@ -103,7 +104,7 @@ int main(int argc, char **argv) {
         out.seq = htonl(seq++);
         // 注意: float のバイトオーダー扱いは環境依存だが、簡易プロトタイプとして送る
         // For real product: convert float to int or use defined serialization.
-        out.x = px; out.y = py; out.btn = 0;
+        out.x = px; out.y = py; out.angle = 0.0f; out.btn = 0;
         sendto(sock, &out, sizeof(out), 0, (struct sockaddr*)&srvaddr, slen);
 
         // 受信ポーリング（非ブロッキング）

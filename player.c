@@ -21,6 +21,8 @@ void player_init(Player* player) {
 
     player->shield_active = 0; //追加
     player->shield_timer = 0.0f; //追加
+
+    player->escudo_stock = 3; // ★追加
 }
 
 // キーボード入力に応じてプレイヤーを動かす

@@ -14,6 +14,12 @@ typedef struct {
     int hp;        // hp
     int maxHp;     // 最大hp
 
+    float escudo_cooldown; // クールタイム
+    int active_wall_x, active_wall_y; // 壁の座標
+    int active_wall_hp;    // 壁のHP
+
+    int escudo_stock;  // ストック数
+
         /* ”追加”　スキル関連（シールド） */
     int shield_active;     // 1 = シールド有効, 0 = 無効
     float shield_timer;    // シールドの残り時間（秒）
