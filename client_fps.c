@@ -20,9 +20,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// ★★★ サーバーPCのIPアドレスに書き換えてください ★★★
 #define SERVER_IP "192.168.1.130" 
-
 #define SERVER_PORT 12345
 #define BUF_SIZE 512
 #define SCREEN_WIDTH 800
@@ -81,6 +79,8 @@ typedef struct {
     int killCount;
     int isStunned;
     int is_stealth;
+    int wallX;
+    int wallY;
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -108,6 +108,17 @@ void update_block_position(int tx, int ty) {
     }
     if(tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT) {
         worldMap[tx][ty] = 9;
+    }
+}
+
+void update_wall_position(int tx, int ty) {
+    for(int x=0; x<MAP_WIDTH; x++) {
+        for(int y=0; y<MAP_HEIGHT; y++) {
+            if(worldMap[x][y] == 8) worldMap[x][y] = 0;
+        }
+    }
+    if(tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT) {
+        if(worldMap[tx][ty] == 0) worldMap[tx][ty] = 8;
     }
 }
 
@@ -157,39 +168,16 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
         else             { stepY = 1;  sideDistY = (mapY + 1.0 - player->y) * deltaDistY; }
         
         int hit = 0, side = 0; int hitType = 0;
-        
         while (hit == 0) {
             if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
             else                       { sideDistY += deltaDistY; mapY += stepY; side = 1; }
-            
-            hitType = worldMap[mapX][mapY];
-            if (hitType > 0) {
-                hit = 1;
-                if (hitType == 9) {
-                    double exactHitPos; 
-                    if (side == 0) {
-                        double rayY = player->y + rayDirY * (sideDistX - deltaDistX);
-                        exactHitPos = rayY - floor(rayY);
-                    } else {
-                        double rayX = player->x + rayDirX * (sideDistY - deltaDistY);
-                        exactHitPos = rayX - floor(rayX);
-                    }
-                    float margin = (1.0f - BLOCK_SCALE) / 2.0f;
-                    if (exactHitPos < margin || exactHitPos > (1.0f - margin)) {
-                        hit = 0; hitType = 0; 
-                    }
-                }
-            }
+            if (worldMap[mapX][mapY] > 0) { hit = 1; hitType = worldMap[mapX][mapY]; }
         }
-        
         if (hitType == 9 && doorHP <= 0) { zBuffer[x] = 1000.0; continue; }
-
         double perpWallDist = (side == 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
         zBuffer[x] = perpWallDist;
-
         int lineHeight = (int)(SCREEN_HEIGHT / (perpWallDist * cos(rayAngle - player->angle)));
         int drawStart, drawEnd;
-
         if (hitType == 9) {
             int blockHeight = (int)(lineHeight * BLOCK_SCALE);
             drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
@@ -198,10 +186,9 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
             drawStart = -lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
             drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
         }
-
         if (drawStart < 0) drawStart = 0;
         if (drawEnd >= SCREEN_HEIGHT) drawEnd = SCREEN_HEIGHT - 1;
-
+        
         if (hitType == 9) { 
              if (side == 1) SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255);
              else           SDL_SetRenderDrawColor(renderer, 0, 0, 200, 255);
@@ -210,10 +197,10 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
              if (hitType == 2) { colorR=50; colorG=50; colorB=200; } 
              else if (hitType == 3) { colorR=200; colorG=50; colorB=50; } 
              else if (hitType == 4) { colorR=150; colorG=100; colorB=50; } 
+             else if (hitType == 8) { colorR=0; colorG=255; colorB=255; } 
              if (side == 1) { colorR=colorR*2/3; colorG=colorG*2/3; colorB=colorB*2/3; }
              SDL_SetRenderDrawColor(renderer, colorR, colorG, colorB, 255);
         }
-        
         if (drawEnd > drawStart) {
             SDL_RenderDrawLine(renderer, x, drawStart, x, drawEnd);
         }
@@ -308,7 +295,6 @@ void draw_skill_icon(SDL_Renderer* ren, TTF_Font* font,
     }
 }
 
-// ★追加した関数（これが抜けていました）
 int get_target_block(Player* player) {
     float rayX = cos(player->angle), rayY = sin(player->angle);
     float x = player->x, y = player->y;
@@ -494,7 +480,6 @@ int main(int argc, char **argv) {
     SDL_Window *win = SDL_CreateWindow("FPS Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
     SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
 
-    // ★画像読み込み (ループ版)
     SDL_Texture* texAttacker[8];
     for(int i=0; i<8; i++) {
         char path[64];
@@ -712,6 +697,9 @@ int main(int argc, char **argv) {
                  initialPosSet = 1;
              }
              selfHP = in.selfHP;
+             // ★修正箇所: UIの表示用HPを、サーバーから来た最新HPで更新する
+             player.hp = in.selfHP; 
+             
              enemyHP = in.enemyHP;
              remainingTime = in.remainingTime;
              respawnTime = in.respawnTime;
@@ -723,6 +711,7 @@ int main(int argc, char **argv) {
                  if (myRole == 0) { player.x = 1.5; player.y = 1.5; } else { player.x = 20.5; player.y = 20.5; }
              }
              update_block_position(in.blockX, in.blockY);
+             update_wall_position(in.wallX, in.wallY);
         }
         
         if (isFiring > 0) isFiring--;

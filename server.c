@@ -7,7 +7,7 @@
 #include <time.h>
 #include <math.h> 
 #include "skill.h" 
-#include "map.h" // ★追加: マップ情報を参照するため
+#include "map.h" 
 
 #define PORT 12345
 #define BUF_SIZE 512
@@ -17,7 +17,7 @@
 #define RESPAWN_TIME_ATTACKER 10
 #define RESPAWN_TIME_DEFENDER 5
 
-#define TIME_SETUP 60
+#define TIME_SETUP 30
 #define TIME_MATCH 120
 
 #define GS_WAITING 0
@@ -26,9 +26,6 @@
 #define GS_PLAYING 2
 #define GS_WIN_ATTACKER 3
 #define GS_WIN_DEFENDER 4
-
-// ★削除: ここにあった worldMap の定義を削除しました
-// マップデータは map.c にあるものを使います
 
 #pragma pack(push,1)
 typedef struct {
@@ -57,6 +54,8 @@ typedef struct {
     int killCount;
     int isStunned;
     int is_stealth;
+    int wallX; // ★追加
+    int wallY; // ★追加
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -102,6 +101,8 @@ void init_game() {
         clients[i].skill1_usedTime = 0;
         clients[i].last_btn = 0;
         clients[i].escudo_stock = 3;
+        clients[i].active_wall_x = -1; // 初期化
+        clients[i].active_wall_y = -1; // 初期化
         clients[i].is_stealth = 0;
         clients[i].killCount = 0;
         clients[i].isStunned = 0;
@@ -240,20 +241,30 @@ int main() {
                         if ((in->btn & 64) && !(clients[id].last_btn & 64)) {
                             int ct = (clients[id].role == 0) ? SKILL_HEAL_CT : SKILL_REPAIR_CT;
                             int passed = (int)difftime(now, clients[id].skill1_usedTime);
-                            if ((clients[id].skill1_usedTime == 0 || passed >= ct) && clients[id].escudo_stock > 0) {
+                            
+                            if (clients[id].skill1_usedTime == 0 || passed >= ct) {
                                 clients[id].skill1_usedTime = now;
-                                if (clients[id].role == 0) skill_logic_heal_generic(&clients[id].hp, MAX_PLAYER_HP, 40);
-                                else skill_logic_repair_generic(&doorHP, MAX_DOOR_HP);
-
-                                double dist = 2.0;
-                                int tx = (int)(clients[id].x + cos(clients[id].angle) * dist);
-                                int ty = (int)(clients[id].y + sin(clients[id].angle) * dist);
-                                if (tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT && worldMap[tx][ty] == 0) {
-                                    worldMap[tx][ty] = 2;
-                                    clients[id].active_wall_x = tx; clients[id].active_wall_y = ty; clients[id].active_wall_hp = 200;
-                                    printf("Server: Wall created at (%d, %d)\n", tx, ty);
+                                
+                                if (clients[id].role == 0) {
+                                    // アタッカー: 回復のみ
+                                    skill_logic_heal_generic(&clients[id].hp, MAX_PLAYER_HP, 40);
+                                } else {
+                                    // ★修正: ディフェンダーのみ壁設置 (ID:8)
+                                    skill_logic_repair_generic(&doorHP, MAX_DOOR_HP);
+                                    if (clients[id].escudo_stock > 0) {
+                                        double dist = 2.0;
+                                        int tx = (int)(clients[id].x + cos(clients[id].angle) * dist);
+                                        int ty = (int)(clients[id].y + sin(clients[id].angle) * dist);
+                                        if (tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT && worldMap[tx][ty] == 0) {
+                                            worldMap[tx][ty] = 8; // ID:8 (エスクード)
+                                            clients[id].active_wall_x = tx; 
+                                            clients[id].active_wall_y = ty; 
+                                            clients[id].active_wall_hp = 200;
+                                            printf("Server: Wall created at (%d, %d)\n", tx, ty);
+                                        }
+                                        clients[id].escudo_stock--;
+                                    }
                                 }
-                                clients[id].escudo_stock--;
                             }
                         }
 
@@ -273,12 +284,13 @@ int main() {
                                         clients[id].killCount++;
                                         printf("Player %d Killed!\n", enemyId);
                                     }
-                                } else if (hitObj == 2) {
+                                } else if (hitObj == 8) { // ★修正: 壁ID 8 の当たり判定
                                     for (int k = 0; k < 2; k++) {
                                         if (clients[k].active_wall_x == hx && clients[k].active_wall_y == hy) {
                                             clients[k].active_wall_hp -= damage;
                                             if (clients[k].active_wall_hp <= 0) {
-                                                worldMap[hx][hy] = 0; clients[k].active_wall_x = -1;
+                                                worldMap[hx][hy] = 0; 
+                                                clients[k].active_wall_x = -1;
                                                 printf("Wall Destroyed!\n");
                                             }
                                             break;
@@ -301,6 +313,15 @@ int main() {
                 out.killCount = clients[id].killCount;
                 out.isStunned = clients[id].isStunned;
                 out.is_stealth = clients[id].is_stealth;
+                
+                // ★追加: 存在する壁の位置を送信 (なければ -1)
+                // どちらかのプレイヤーが出した壁を全員に同期する
+                out.wallX = -1; out.wallY = -1;
+                if (clients[0].active_wall_x != -1) { 
+                    out.wallX = clients[0].active_wall_x; out.wallY = clients[0].active_wall_y; 
+                } else if (clients[1].active_wall_x != -1) {
+                    out.wallX = clients[1].active_wall_x; out.wallY = clients[1].active_wall_y;
+                }
 
                 if (clients[id].deadTime > 0) {
                     int interval = (clients[id].role == 0) ? RESPAWN_TIME_ATTACKER : RESPAWN_TIME_DEFENDER;
