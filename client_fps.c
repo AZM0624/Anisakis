@@ -49,7 +49,39 @@
 #define SKILL3_COOLDOWN 20.0   /* F3: ダッシュ */
 #define SKILL4_COOLDOWN 30.0   /* F4: ステルス */
 
-// ★パケットにステルスフラグを追加
+#ifndef MAP_WIDTH
+#define MAP_WIDTH 24
+#define MAP_HEIGHT 24
+#endif
+
+int worldMap[MAP_WIDTH][MAP_HEIGHT] = {
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
+    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, // 0
+    {1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 1 (Attacker Spawn = 1,1)
+    {1, 0, 0, 0, 2, 0, 2, 0, 1, 0, 0, 0, 3, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 2
+    {1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 3 (左上の遮蔽物)
+    {1, 0, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 4
+    {1, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 3, 0, 0, 0, 4, 4, 4, 2, 2, 1}, // 5
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 3, 0, 0, 0, 4, 0, 4, 0, 0, 1}, // 6 (中央ルートの激戦区)
+    {1, 0, 0, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 4, 0, 0, 1}, // 7
+    {1, 0, 0, 4, 0, 4, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 8 (★9=初期ブロック位置付近は空ける)
+    {1, 0, 0, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 9
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 10
+    {1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 11 (左側を壁で分断)
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 0, 0, 0, 0, 1}, // 12
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 1}, // 13
+    {1, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 1}, // 14
+    {1, 0, 0, 3, 0, 0, 0, 0, 5, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 15
+    {1, 0, 0, 3, 0, 0, 0, 0, 5, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 16
+    {1, 0, 0, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1}, // 17 (右側を壁で分断)
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 18
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 19
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 2, 0, 0, 0, 1}, // 20 (Defender Spawn = 20,20)
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 1}, // 21
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 22
+    {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}  // 23
+};
+
 #pragma pack(push,1)
 typedef struct {
     uint32_t seq;
@@ -72,14 +104,18 @@ typedef struct {
     int remainingTime;
     int blockX; 
     int blockY; 
-    int respawnTime; 
+    int respawnTime;
     int skill1_remain; 
+    int killCount;
+    int isStunned;
+    int is_stealth;
 } server_pkt_t;
 #pragma pack(pop)
 
 typedef struct {
     float x, y, angle;
     int active;
+    int is_stealth;
 } Enemy;
 
 double zBuffer[SCREEN_WIDTH];
@@ -287,8 +323,15 @@ int get_target_block(Player* player) {
 }
 
 void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAmmo, int isReloading, 
-             int myRole, int doorHP, int gameState, int selfHP, int remainingTime, double skill1_cd, double skill2_cd,double skill3_cd,double skill4_cd, double shield_remain,int hp, int maxHp, const char* hitMsg, int hitTimer,int respawnTime) {
-    // クロスヘア
+             int myRole, int doorHP, int gameState, int selfHP, int remainingTime, double skill1_cd, double skill2_cd,double skill3_cd,double skill4_cd, double shield_remain,int hp, int maxHp, const char* hitMsg, int hitTimer,int respawnTime, int killCount, int isStunned) {
+    SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
+    SDL_RenderDrawLine(ren, SCREEN_WIDTH/2 - 10, SCREEN_HEIGHT/2, SCREEN_WIDTH/2 + 10, SCREEN_HEIGHT/2);
+    SDL_RenderDrawLine(ren, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 10);
+    SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
+    SDL_RenderDrawLine(ren, SCREEN_WIDTH/2 - 10, SCREEN_HEIGHT/2, SCREEN_WIDTH/2 + 10, SCREEN_HEIGHT/2);
+    SDL_RenderDrawLine(ren, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 10, SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 10);
+    
+        // 1. 照準（クロスヘア）の描画
     SDL_SetRenderDrawColor(ren, 0, 255, 0, 255);
     int cx = SCREEN_WIDTH / 2, cy = SCREEN_HEIGHT / 2;
     SDL_RenderDrawLine(ren, cx - 10, cy, cx + 10, cy);
@@ -304,12 +347,15 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
     SDL_Rect bgRect = {barX, barY, barWidth, barHeight};
     SDL_SetRenderDrawColor(ren, 50, 50, 50, 255); 
     SDL_RenderFillRect(ren, &bgRect);
+    
+    /*
     if (font) {
         draw_text_bg(ren, font, "HP", barX, barY - 30, white, transparent);
         char hpText[32];
         sprintf(hpText, "%d/%d", hp, maxHp);
         draw_text_bg(ren, font, hpText, barX + barWidth + 10, barY, white, transparent);
     }
+     */
     
     // スキルUI
     int iconSize = 36;
@@ -349,6 +395,8 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
     SDL_Color red = {255, 50, 50, 255};
     SDL_Color blue = {100, 100, 255, 255};
     SDL_Color green = {50, 255, 50, 255};
+    SDL_Color yellow = {255, 255, 0, 255}; 
+    SDL_Color magenta = {255, 0, 255, 255}; 
     SDL_Color bgCol = {0, 0, 0, 150}; 
     char msg[64];
     
@@ -401,6 +449,23 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
     } else {
         sprintf(msg, "%d / %d", currentAmmo, MAX_AMMO);
         draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH - 200, SCREEN_HEIGHT - 70, (currentAmmo==0)?red:white, bgCol);
+    }
+
+    // 必殺技ゲージ（防衛側のみ表示）
+    if (myRole == 1) { 
+        if (killCount >= 3) {
+            sprintf(msg, "ULTIMATE READY [Q]");
+            draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH - 320, SCREEN_HEIGHT - 130, yellow, bgCol);
+        } else {
+            sprintf(msg, "Ult: %d / 3", killCount);
+            draw_text_bg(ren, font, msg, SCREEN_WIDTH - 200, SCREEN_HEIGHT - 130, white, bgCol);
+        }
+    }
+
+    // スタン状態の警告（全員表示される可能性があるため）
+    if (isStunned) {
+         draw_text_bg(ren, fontBig, "STUNNED!", SCREEN_WIDTH/2 - 100, SCREEN_HEIGHT/2 - 20, magenta, bgCol);
+         draw_text_bg(ren, font, "CANNOT MOVE", SCREEN_WIDTH/2 - 80, SCREEN_HEIGHT/2 + 40, white, bgCol);
     }
 
     if (gameState == GS_WIN_ATTACKER) { 
@@ -462,6 +527,8 @@ int main(int argc, char **argv) {
     int wasDead = 0; 
     int forceStart = 0; 
     int sendFKey = 0; 
+    int myKillCount = 0;
+    int isStunned = 0;
     int sendEKey = 0; 
     
     int initialPosSet = 0;
@@ -496,6 +563,10 @@ int main(int argc, char **argv) {
             if (gameState == GS_PLAYING) canControl = 1;
             else if (gameState == GS_SETUP && myRole == 1) canControl = 1;
 
+            // スタン中は操作不能にする (キー入力全般を無視する場合)
+            // ただし、視点移動を許すかどうかによる。今回は「移動も操作も不可」とする
+            if (isStunned) canControl = 0;
+            
             if (canControl && selfHP > 0 && respawnTime == 0) {
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_J) {
                     if (!isReloading && currentAmmo > 0) {
@@ -506,6 +577,18 @@ int main(int argc, char **argv) {
                 
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_SPACE) {
                     if (player.z <= 0) player.vz = JUMP_POWER;
+                }
+
+            // ★修正: F1キーでヒール (アタッカー専用)
+                if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F1) {
+                    if (myRole == 0) { // アタッカーのみ
+                        if (skill1_cd_timer <= 0.0) {
+                            skill1_cd_timer = SKILL1_COOLDOWN;
+                            SDL_Log("Heal Skill Used!");
+                        } else {
+                            SDL_Log("Heal on cooldown: %.1f", skill1_cd_timer);
+                        }
+                    }
                 }
 
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F) {
@@ -538,15 +621,21 @@ int main(int argc, char **argv) {
 
                 // スキル: E エスクード(回復/修理)
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_E) {
-                    skill_escudo(&player); 
+                if (myRole == 1) { // 防衛側のみ実行
+                    skill_escudo(&player);
                     sendEKey = 1;
                 }
-            }
         }
+    }
+}
+    
 
         int canMove = 0;
         if (gameState == GS_PLAYING) canMove = 1;
         else if (gameState == GS_SETUP && myRole == 1) canMove = 1;
+
+        // ★追加: スタン中は移動不可
+        if (isStunned) canMove = 0;
 
         if (canMove && selfHP > 0 && respawnTime == 0) {
             int mouseX, mouseY;
@@ -615,13 +704,7 @@ int main(int argc, char **argv) {
 
         float shield_remain = skill_get_shield_time_remaining(&player);
 
-        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime, 
-                (double)skill1_remain, // Eキー (Server管理)
-                skill2_cd_timer,       // F2
-                skill3_cd_timer,       // F3
-                skill4_cd_timer,       // F4
-                shield_remain, player.hp, player.maxHp, hitMsg, hitTimer, respawnTime);
-        
+        draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime, skill1_cd_timer, skill2_cd_timer, skill3_cd_timer,skill4_cd_timer,shield_remain, player.hp, player.maxHp, hitMsg, hitTimer,respawnTime, myKillCount, isStunned);
         if (hitTimer > 0) hitTimer--;
 
         SDL_RenderPresent(ren);
@@ -636,6 +719,22 @@ int main(int argc, char **argv) {
         if (sendFKey) { out.btn |= 32; sendFKey = 0; } 
         if (sendEKey) { out.btn |= 64; sendEKey = 0; } 
         
+        // ★追加: Qキーで必殺技発動リクエスト (防衛側のみ)
+        const Uint8 *ks = SDL_GetKeyboardState(NULL);
+        if (ks[SDL_SCANCODE_Q]) {
+            out.btn |= 128; // 必殺技ビット
+        }
+
+        // 防衛側 (Role 1) は Eキー でエスクード (Bit 64)
+        if (myRole == 1 && ks[SDL_SCANCODE_E]) {
+            out.btn |= 64; 
+        }
+
+        // アタッカー (Role 0) は F1キー でヒール (Bit 64)
+        if (myRole == 0 && ks[SDL_SCANCODE_F1]) {
+            out.btn |= 64; 
+        }
+
         if (isFiring == FIRE_ANIM_TIME) {
             out.btn |= 1; 
             if (hitTargetStatus == 2) out.btn |= 8;      
@@ -656,6 +755,11 @@ int main(int argc, char **argv) {
              myRole = in.role;
              gameState = in.gameState;
              
+             // サーバーから撃破数とスタン情報を受け取る
+             myKillCount = in.killCount;
+             isStunned = in.isStunned;
+
+             // 初期位置設定（役割が決まったら一度だけ飛ぶ）
              if (!initialPosSet && myRole != -1) {
                  if (myRole == 0) { 
                      player.x = 1.5; player.y = 1.5; 

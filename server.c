@@ -67,6 +67,7 @@ typedef struct {
     float x, y;
     float angle;
     uint8_t btn; 
+    uint8_t is_stealth;
 } pkt_t;
 #pragma pack(pop)
 
@@ -84,6 +85,9 @@ typedef struct {
     int blockY;
     int respawnTime; 
     int skill1_remain; // スキル1の残り待ち時間
+    int killCount;
+    int isStunned;
+    int is_stealth;
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -103,6 +107,10 @@ struct Client {
     int active_wall_x;
     int active_wall_y;
     int active_wall_hp;
+
+    int killCount;
+    time_t stunEndTime;
+    int is_stealth;
 };
 
 struct Client clients[2]; 
@@ -128,6 +136,11 @@ void init_game() {
         clients[i].skill1_usedTime = 0;
         clients[i].last_btn = 0;
         clients[i].escudo_stock = 3;   // ★追加: ストックを3に設定
+
+        clients[i].killCount = 0;
+        clients[i].stunEndTime = 0;
+        clients[i].is_stealth = 0;
+
         if (clients[i].active) {
             clients[i].role = (i == attacker_id) ? 0 : 1;
         }
@@ -236,6 +249,7 @@ int main() {
                     clients[i].hp = MAX_PLAYER_HP;
                     clients[i].deadTime = 0;
                     clients[i].skill1_usedTime = 0;
+                    clients[i].stunEndTime = 0;
                     printf("Player %d Respawned!\n", i);
                 }
             }
@@ -262,6 +276,8 @@ int main() {
                             clients[i].active = 1;
                             clients[i].hp = MAX_PLAYER_HP;
                             clients[i].deadTime = 0;
+                            clients[i].killCount = 0;
+                            clients[i].stunEndTime = 0;
                             client_count++;
                             if (client_count == 2) init_game();
                             else clients[i].role = 0;
@@ -278,6 +294,7 @@ int main() {
                     clients[id].x = in->x;
                     clients[id].y = in->y;
                     clients[id].angle = in->angle;
+                    clients[id].is_stealth = in->is_stealth;
                 }
 
                 int enemyId = (id == 0) ? 1 : 0;
@@ -306,6 +323,22 @@ int main() {
                 if (currentGameState == GS_PLAYING) {
                     if (clients[id].hp > 0) {
                         
+                        // 必殺技発動 (ボタン128: Qキー)
+                        if ((in->btn & 128) && !(clients[id].last_btn & 128)) {
+                            // 防衛側のみ発動可能
+                            if (clients[id].role == 1) {
+                                // 撃破数が3以上必要
+                                if (clients[id].killCount >= 3) {
+                                    clients[id].killCount -= 3; // コスト消費
+                                    // 敵を5秒間スタン
+                                    clients[enemyId].stunEndTime = now + 5;
+                                    printf("DEFENDER (P%d) used ULTIMATE! Attacker Stunned!\n", id);
+                                } else {
+                                    printf("Defender P%d tried Ult but low kills (%d/3)\n", id, clients[id].killCount);
+                                }
+                            }
+                        }
+
                         // スキルボタン(64)が押された時の処理
                         if ((in->btn & 64) && !(clients[id].last_btn & 64)) {
                             // クールタイム設定（役割別）
@@ -375,9 +408,12 @@ int main() {
                                         clients[enemyId].hp = 0;
                                         clients[enemyId].deadTime = time(NULL); 
                                         printf("Player %d Killed!\n", enemyId);
+
+                                        // 敵を倒したらキルカウント+1
+                                        clients[id].killCount++;
+                                        printf("Player %d Kill Count: %d\n", id, clients[id].killCount);
                                     }
-                                } 
-                                else if (hitObj == 2) {
+                                } else if (hitObj == 2) {
                                     // スキル壁に命中 -> 壁にダメージ
                                     printf("Hit Wall at (%d, %d)!\n", hx, hy);
                                     for (int k = 0; k < 2; k++) {
@@ -413,6 +449,9 @@ int main() {
                 out.remainingTime = remaining;
                 out.blockX = blockX;
                 out.blockY = blockY;
+
+                out.killCount = clients[id].killCount;
+                out.isStunned = (clients[id].stunEndTime > now) ? 1 : 0;                
                 
                 out.respawnTime = 0;
                 if (clients[id].deadTime > 0) {
@@ -441,6 +480,7 @@ int main() {
                     out.active = 0;
                     out.enemyHP = 0;
                 }
+                out.is_stealth = clients[enemyId].is_stealth;
                 sendto(sock, &out, sizeof(out), 0, (struct sockaddr *)&cliaddr, clilen);
             }
         }
