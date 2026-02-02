@@ -4,6 +4,7 @@
 #include "player.h"
 #include "map.h" // マップ情報
 #include "skill.h" // スキル情報
+#include <SDL2/SDL_mixer.h>
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 600
@@ -122,9 +123,27 @@ void draw_floor_ceiling(SDL_Renderer* renderer) {
     SDL_RenderFillRect(renderer, &floor);
 }
 
+Mix_Chunk *gunSound = NULL;
+
 int main(int argc, char* argv[]) {
     // 1. SDLの初期化
     if (SDL_Init(SDL_INIT_VIDEO) != 0) return 1;
+
+    // 【追加】SDL_mixerの初期化（周波数44100Hz, ステレオ）
+    // MP3を使用する場合、Mix_InitでMIX_INIT_MP3を指定するのが確実ですが、
+    // 最近のバージョンではMix_OpenAudioだけで再生できる場合も多いです。
+    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+        printf("SDL_mixer Error: %s\n", Mix_GetError());
+        return 1;
+    }
+
+    // 【追加】音声ファイルの読み込み
+    // SE（効果音）として扱うため Mix_LoadWAV を使用します（MP3も読み込めます）
+    // ファイル名「拳銃を撃つ.mp3」は実行ファイルと同じ場所に置いてください
+    gunSound = Mix_LoadWAV("拳銃を撃つ.mp3");
+    if (gunSound == NULL) {
+        printf("Failed to load sound! SDL_mixer Error: %s\n", Mix_GetError());
+    }
 
     // 2. ウィンドウとレンダラーの作成
     SDL_Window* window = SDL_CreateWindow("Pseudo-3D FPS", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
@@ -149,7 +168,24 @@ int main(int argc, char* argv[]) {
             if (event.type == SDL_QUIT) {
                 running = 0;
             }
+            // 【追加】発砲イベント（マウス左クリック または スペースキー）
+            if (event.type == SDL_MOUSEBUTTONDOWN) {
+                if (event.button.button == SDL_BUTTON_LEFT) {
+                    // チャンネル-1（空いている場所）で再生、ループなし(0)
+                    if (gunSound != NULL) {
+                        Mix_PlayChannel(-1, gunSound, 0);
+                    }
+                }
+            }
+            else if (event.type == SDL_KEYDOWN) {
+                if (event.key.keysym.sym == SDLK_SPACE) {
+                     if (gunSound != NULL) {
+                        Mix_PlayChannel(-1, gunSound, 0);
+                    }
+                }
+            }
         }
+        
 
         // --- 入力・更新・描画 ---
         // (1) 入力
