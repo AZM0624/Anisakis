@@ -19,9 +19,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// ★★★ サーバーPCのIPアドレスに書き換えてください ★★★
-#define SERVER_IP "192.168.1.151" 
-
+#define SERVER_IP "192.168.1.130" 
 #define SERVER_PORT 12345
 #define BUF_SIZE 512
 #define SCREEN_WIDTH 800
@@ -46,10 +44,10 @@
 #define GS_WIN_ATTACKER 3
 #define GS_WIN_DEFENDER 4
 
-#define SKILL1_COOLDOWN 30.0   /* F1: ヒールのクールダウン */
-#define SKILL2_COOLDOWN 30.0   /* F2: シールドのクールダウン */
-#define SKILL3_COOLDOWN 20.0   // F3: ダッシュ
-#define SKILL4_COOLDOWN 30.0   // F4: ステルス
+#define SKILL1_COOLDOWN 30.0   /* F1: ヒール */
+#define SKILL2_COOLDOWN 30.0   /* F2: シールド */
+#define SKILL3_COOLDOWN 20.0   /* F3: ダッシュ */
+#define SKILL4_COOLDOWN 30.0   /* F4: ステルス */
 
 #ifndef MAP_WIDTH
 #define MAP_WIDTH 24
@@ -90,6 +88,7 @@ typedef struct {
     float x, y;
     float angle;
     uint8_t btn; 
+    uint8_t is_stealth; // 追加: 1=ステルス中
 } pkt_t;
 #pragma pack(pop)
 
@@ -167,6 +166,8 @@ void draw_floor_ceiling(SDL_Renderer* renderer, int pitch) {
     SDL_RenderFillRect(renderer, &floor);
 }
 
+#define BLOCK_SCALE 1.0f 
+
 void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
     int pitch = (int)(player->z * PITCH_SCALE);
     for (int x = 0; x < SCREEN_WIDTH; x++) {
@@ -188,56 +189,32 @@ void draw_walls(SDL_Renderer* renderer, Player* player, int doorHP) {
             else                       { sideDistY += deltaDistY; mapY += stepY; side = 1; }
             if (worldMap[mapX][mapY] > 0) { hit = 1; hitType = worldMap[mapX][mapY]; }
         }
-        
         if (hitType == 9 && doorHP <= 0) { zBuffer[x] = 1000.0; continue; }
-
         double perpWallDist = (side == 0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
         zBuffer[x] = perpWallDist;
-
-        // 壁の本来の高さを計算
         int lineHeight = (int)(SCREEN_HEIGHT / (perpWallDist * cos(rayAngle - player->angle)));
-        
         int drawStart, drawEnd;
-
-        // ★ここが変更点！ ブロック(9)の場合は高さを調整する
         if (hitType == 9) {
-            // ブロックの高さ倍率（0.5 = 半分の高さ。ここを変えると大きさが変わる）
-            float blockScale = 0.5f; 
-            int blockHeight = (int)(lineHeight * blockScale);
-            
-            // 本来の壁の下端（地面の位置）を計算
+            int blockHeight = (int)(lineHeight * BLOCK_SCALE);
             drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
-            // 下端からブロックの高さ分だけ上を計算
             drawStart = drawEnd - blockHeight;
-
         } else {
-            // 通常の壁
             drawStart = -lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
             drawEnd = lineHeight / 2 + SCREEN_HEIGHT / 2 + pitch;
         }
-
-        // 画面外にはみ出さないようにクリップ処理（念のため追加）
         if (drawStart < 0) drawStart = 0;
         if (drawEnd >= SCREEN_HEIGHT) drawEnd = SCREEN_HEIGHT - 1;
-
         if (hitType == 9) { 
              if (side == 1) SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255);
              else           SDL_SetRenderDrawColor(renderer, 0, 0, 200, 255);
         } else { 
-             // 壁の色分けロジックを少し整理
              int colorR = 160, colorG = 160, colorB = 160;
-             if (hitType == 2) { colorR=50; colorG=50; colorB=200; } // 青柱
-             else if (hitType == 3) { colorR=200; colorG=50; colorB=50; } // 赤柱
-             else if (hitType == 4) { colorR=150; colorG=100; colorB=50; } // 木の壁
-             
-             if (side == 1) { // 影をつける
-                 colorR = colorR * 2 / 3;
-                 colorG = colorG * 2 / 3;
-                 colorB = colorB * 2 / 3;
-             }
+             if (hitType == 2) { colorR=50; colorG=50; colorB=200; } 
+             else if (hitType == 3) { colorR=200; colorG=50; colorB=50; } 
+             else if (hitType == 4) { colorR=150; colorG=100; colorB=50; } 
+             if (side == 1) { colorR=colorR*2/3; colorG=colorG*2/3; colorB=colorB*2/3; }
              SDL_SetRenderDrawColor(renderer, colorR, colorG, colorB, 255);
         }
-        // 線を描画（クリップしたので安全）
         if (drawEnd > drawStart) {
             SDL_RenderDrawLine(renderer, x, drawStart, x, drawEnd);
         }
@@ -251,39 +228,26 @@ void draw_skill_icon(SDL_Renderer* ren, TTF_Font* font,
 {
     SDL_Color white = {255,255,255,255};
     SDL_Color transparent = {0,0,0,0};
-
     if (cd > 0.01)
         SDL_SetRenderDrawColor(ren, 80, 80, 80, 200);
     else
-        SDL_SetRenderDrawColor(ren,
-            readyCol.r, readyCol.g, readyCol.b, 220);
-
+        SDL_SetRenderDrawColor(ren, readyCol.r, readyCol.g, readyCol.b, 220);
     SDL_Rect r = {x, y, size, size};
     SDL_RenderFillRect(ren, &r);
-
     SDL_SetRenderDrawColor(ren, 255,255,255,255);
     SDL_RenderDrawRect(ren, &r);
-
-    // 1文字ラベル
-    draw_text_bg(ren, font, label,
-        x + size/2 - 6, y + 4,
-        white, transparent);
-
-    // クールダウン秒
+    draw_text_bg(ren, font, label, x + size/2 - 6, y + 4, white, transparent);
     if (cd > 0.01) {
         char buf[8];
         sprintf(buf, "%d", (int)ceil(cd));
-        draw_text_bg(ren, font, buf,
-            x + size/2 - 6, y + size - 14,
-            white, transparent);
+        draw_text_bg(ren, font, buf, x + size/2 - 6, y + size - 14, white, transparent);
     }
 }
 
 int draw_enemy(SDL_Renderer* renderer, Player* player, Enemy* enemy, SDL_Texture* texture, int enemyHP) {
     if (!enemy->active || enemyHP <= 0) return 0; 
-
-    // ★ ここでステルス中なら敵を描画しない
-    if (player->stealth_active) return 0;
+    // ★修正: ここにあった「自分がステルスなら敵を描画しない」処理を削除しました。
+    // 自分が隠れても敵は見えなければなりません。
 
     int pitch = (int)(player->z * PITCH_SCALE);
     double spriteX = enemy->x - player->x;
@@ -373,62 +337,42 @@ void draw_ui(SDL_Renderer* ren, SDL_Texture* gunTex, int isFiring, int currentAm
     SDL_RenderDrawLine(ren, cx - 10, cy, cx + 10, cy);
     SDL_RenderDrawLine(ren, cx, cy - 10, cx, cy + 10);
 
-    // 2. HPバーの描画
+    // HPバー
     int barWidth = 200;
     int barHeight = 20;
     int barX = 20;
     int barY = SCREEN_HEIGHT - 40;
-
     SDL_Color white = {255, 255, 255, 255};
     SDL_Color transparent = {0, 0, 0, 0};
-
-    // 背景（暗いグレー、完全不透明）
     SDL_Rect bgRect = {barX, barY, barWidth, barHeight};
     SDL_SetRenderDrawColor(ren, 50, 50, 50, 255); 
     SDL_RenderFillRect(ren, &bgRect);
     
     /*
     if (font) {
-        // 文字 "HP"
         draw_text_bg(ren, font, "HP", barX, barY - 30, white, transparent);
-        
-        // HP数値をテキストで表示
         char hpText[32];
         sprintf(hpText, "%d/%d", hp, maxHp);
         draw_text_bg(ren, font, hpText, barX + barWidth + 10, barY, white, transparent);
     }
      */
     
-// スキルUIを右下・1文字アイコン化
-int iconSize = 36;
-int padding  = 12;
+    // スキルUI
+    int iconSize = 36;
+    int padding  = 12;
+    int anchorX = SCREEN_WIDTH - padding;
+    int anchorY = padding;
 
-int anchorX = SCREEN_WIDTH - padding;
-int anchorY = padding;
+    // F4: Stealth (Purple)
+    draw_skill_icon(ren, font, anchorX - (iconSize + padding) * 1, anchorY, iconSize, "F4", skill4_cd, (SDL_Color){180,100,255,255});
+    // F3: Dash (Orange)
+    draw_skill_icon(ren, font, anchorX - (iconSize + padding) * 2, anchorY, iconSize, "F3", skill3_cd, (SDL_Color){255,180,50,255});
+    // F2: Shield (Blue)
+    draw_skill_icon(ren, font, anchorX - (iconSize + padding) * 3, anchorY, iconSize, "F2", skill2_cd, (SDL_Color){50,120,255,255});
+    // F1: Heal/Effect (Green)
+    draw_skill_icon(ren, font, anchorX - (iconSize + padding) * 4, anchorY, iconSize, "F1", skill1_cd, (SDL_Color){0,180,0,255});
 
-// 右から左
-draw_skill_icon(ren, font,
-    anchorX - (iconSize + padding) * 1,
-    anchorY, iconSize, "H", skill1_cd,
-    (SDL_Color){0,180,0,255});
-
-draw_skill_icon(ren, font,
-    anchorX - (iconSize + padding) * 2,
-    anchorY, iconSize, "S", skill2_cd,
-    (SDL_Color){50,120,255,255});
-
-draw_skill_icon(ren, font,
-    anchorX - (iconSize + padding) * 3,
-    anchorY, iconSize, "D", skill3_cd,
-    (SDL_Color){255,180,50,255});
-
-draw_skill_icon(ren, font,
-    anchorX - (iconSize + padding) * 4,
-    anchorY, iconSize, "T", skill4_cd,
-    (SDL_Color){180,100,255,255});
-
-    // 3. 銃と弾薬の描画
-
+    // 銃の描画
     int gunX = SCREEN_WIDTH - 200, gunY = SCREEN_HEIGHT - 150;
     if (gunTex) {
         int w, h; SDL_QueryTexture(gunTex, NULL, NULL, &w, &h);
@@ -447,13 +391,13 @@ draw_skill_icon(ren, font,
         SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     }
 
+    // ステータス
     SDL_Color red = {255, 50, 50, 255};
     SDL_Color blue = {100, 100, 255, 255};
     SDL_Color green = {50, 255, 50, 255};
     SDL_Color yellow = {255, 255, 0, 255}; 
     SDL_Color magenta = {255, 0, 255, 255}; 
     SDL_Color bgCol = {0, 0, 0, 150}; 
-
     char msg[64];
     
     if (respawnTime > 0) {
@@ -462,7 +406,6 @@ draw_skill_icon(ren, font,
         SDL_Rect screen = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
         SDL_RenderFillRect(ren, &screen);
         SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
-
         sprintf(msg, "RESPAWN IN %d", respawnTime);
         draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH/2 - 150, SCREEN_HEIGHT/2 - 50, white, bgCol);
         draw_text_bg(ren, font, "YOU ARE DEAD", SCREEN_WIDTH/2 - 80, SCREEN_HEIGHT/2 - 100, red, bgCol);
@@ -481,11 +424,9 @@ draw_skill_icon(ren, font,
     } else if (gameState == GS_SETUP) {
         sprintf(msg, "SETUP PHASE: %d", remainingTime);
         draw_text_bg(ren, fontBig, msg, SCREEN_WIDTH/2 - 200, 20, (remainingTime < 10)?red:white, bgCol);
-        
         if (myRole == 1) {
             draw_text_bg(ren, font, "DEFENDER: Move Block [F]", SCREEN_WIDTH/2 - 150, 80, blue, bgCol);
         } else {
-            // ★変更: アタッカーは動けないことを明示
             draw_text_bg(ren, font, "ATTACKER: Wait... (Locked)", SCREEN_WIDTH/2 - 120, 80, red, bgCol);
         }
     } else if (gameState == GS_PLAYING) {
@@ -503,9 +444,6 @@ draw_skill_icon(ren, font,
     sprintf(msg, "Door HP: %d", doorHP);
     draw_text_bg(ren, font, msg, 20, 70, white, bgCol);
     
-    sprintf(msg, "HP: %d", selfHP);
-    draw_text_bg(ren, fontBig, msg, 20, SCREEN_HEIGHT - 70, (selfHP < 30)?red:green, bgCol);
-
     if (isReloading) {
         draw_text_bg(ren, font, "RELOADING...", SCREEN_WIDTH - 220, SCREEN_HEIGHT - 60, red, bgCol);
     } else {
@@ -562,6 +500,10 @@ int main(int argc, char **argv) {
 
     Player player; player_init(&player);
     player.z = 0.0; player.vz = 0.0; 
+    // スキル用変数の初期化
+    player.dash_active = 0; player.dash_timer = 0; player.dash_cooldown = 0;
+    player.stealth_active = 0; player.stealth_timer = 0; player.stealth_cooldown = 0;
+    player.shield_active = 0; player.shield_timer = 0; player.escudo_cooldown = 0;
 
     Enemy enemy = {0};
     uint32_t seq = 0;
@@ -581,13 +523,14 @@ int main(int argc, char **argv) {
     int hitTargetStatus = 0; 
     int remainingTime = 0; 
     int respawnTime = 0; 
+    int skill1_remain = 0; 
     int wasDead = 0; 
     int forceStart = 0; 
     int sendFKey = 0; 
     int myKillCount = 0;
     int isStunned = 0;
+    int sendEKey = 0; 
     
-    // ★初期位置セットフラグ
     int initialPosSet = 0;
 
     double skill1_cd_timer = 0.0; 
@@ -595,14 +538,16 @@ int main(int argc, char **argv) {
     double skill3_cd_timer = 0.0; 
     double skill4_cd_timer = 0.0;
 
-    /* ★★★ HIT表示用（ここに追加）★★★ */
-   char hitMsg[64] = "";
-   int hitTimer = 0;
+    char hitMsg[64] = "";
+    int hitTimer = 0;
 
     while (running) {
         Uint64 NOW = SDL_GetPerformanceCounter();
         double dt = (double)(NOW - LAST) / (double)SDL_GetPerformanceFrequency();
         LAST = NOW;
+
+        // ★スキルタイマー更新
+        skill_update(&player, (float)dt);
 
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
@@ -614,7 +559,6 @@ int main(int argc, char **argv) {
                 }
             }
             
-            // ★操作許可判定: 試合中 OR (セットアップ中かつDefender)
             int canControl = 0;
             if (gameState == GS_PLAYING) canControl = 1;
             else if (gameState == GS_SETUP && myRole == 1) canControl = 1;
@@ -651,47 +595,41 @@ int main(int argc, char **argv) {
                     sendFKey = 1;
                 }
 
-            // F2: シールド発動
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F2) {
-                if (skill2_cd_timer <= 0.0) {
-                    skill_shield_activate(&player);
-                    skill2_cd_timer = SKILL2_COOLDOWN;
-                } else {
-                    SDL_Log("F2 on cooldown: %.2f", skill2_cd_timer);
-                }
-            }
-
-            // F3: ダッシュ
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F3) {
-                if (skill3_cd_timer <= 0.0) {
-                    skill_dash(&player);
-                    skill3_cd_timer = SKILL3_COOLDOWN;
-                } else {
-                    SDL_Log("F3 on cooldown: %.2f", skill3_cd_timer);
-                }
-            }
-
-            // F4: ステルス
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F4) {
-                if (skill4_cd_timer <= 0.0) {
-                    skill_stealth(&player);
-                    skill4_cd_timer = SKILL4_COOLDOWN;
-                } else {
-                    SDL_Log("F4 on cooldown: %.2f", skill4_cd_timer);
+                // スキル: F2 シールド
+                if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F2) {
+                    if (skill2_cd_timer <= 0.0) {
+                        skill_shield_activate(&player);
+                        skill2_cd_timer = SKILL2_COOLDOWN;
                     }
                 }
 
-            // スキル・エスクード（Eキー） 
+                // スキル: F3 ダッシュ
+                if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F3) {
+                    if (skill3_cd_timer <= 0.0) {
+                        skill_dash(&player);
+                        skill3_cd_timer = SKILL3_COOLDOWN;
+                    }
+                }
+
+                // スキル: F4 ステルス
+                if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_F4) {
+                    if (skill4_cd_timer <= 0.0) {
+                        skill_stealth(&player);
+                        skill4_cd_timer = SKILL4_COOLDOWN;
+                    }
+                }
+
+                // スキル: E エスクード(回復/修理)
                 if (ev.type == SDL_KEYDOWN && ev.key.keysym.scancode == SDL_SCANCODE_E) {
                 if (myRole == 1) { // 防衛側のみ実行
                     skill_escudo(&player);
+                    sendEKey = 1;
                 }
         }
     }
 }
     
 
-        // ★移動許可判定
         int canMove = 0;
         if (gameState == GS_PLAYING) canMove = 1;
         else if (gameState == GS_SETUP && myRole == 1) canMove = 1;
@@ -710,8 +648,9 @@ int main(int argc, char **argv) {
             if (key_state[SDL_SCANCODE_ESCAPE]) running = 0;
 
             float moveSpeed = 3.0 * dt;
+            // ★ダッシュ中は速度アップ
             if (player.dash_active) {
-                moveSpeed *= 1.5f;
+                moveSpeed *= 2.5f; // ダッシュ倍率
             }
             
             if (key_state[SDL_SCANCODE_W]) {
@@ -754,9 +693,6 @@ int main(int argc, char **argv) {
         if (skill3_cd_timer < 0.0) skill3_cd_timer = 0.0;
         if (skill4_cd_timer < 0.0) skill4_cd_timer = 0.0;
 
-        /* 追加 */
-        skill_update(&player, (float)dt);
-
         SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
         SDL_RenderClear(ren);
         
@@ -766,7 +702,6 @@ int main(int argc, char **argv) {
         draw_walls(ren, &player, doorHP); 
         hitTargetStatus = draw_enemy(ren, &player, &enemy, enemyTex, enemyHP);
 
-        /* 追加*/
         float shield_remain = skill_get_shield_time_remaining(&player);
 
         draw_ui(ren, gunTex, isFiring, currentAmmo, isReloading, myRole, doorHP, gameState, selfHP, remainingTime, skill1_cd_timer, skill2_cd_timer, skill3_cd_timer,skill4_cd_timer,shield_remain, player.hp, player.maxHp, hitMsg, hitTimer,respawnTime, myKillCount, isStunned);
@@ -778,9 +713,11 @@ int main(int argc, char **argv) {
         out.seq = htonl(seq++); 
         out.x = player.x; out.y = player.y; out.angle = player.angle; 
         out.btn = 0;
+        out.is_stealth = player.stealth_active; // ★自分のステルス状態を送信
         
         if (forceStart) { out.btn |= 16; forceStart = 0; }
         if (sendFKey) { out.btn |= 32; sendFKey = 0; } 
+        if (sendEKey) { out.btn |= 64; sendEKey = 0; } 
         
         // ★追加: Qキーで必殺技発動リクエスト (防衛側のみ)
         const Uint8 *ks = SDL_GetKeyboardState(NULL);
@@ -824,11 +761,11 @@ int main(int argc, char **argv) {
 
              // 初期位置設定（役割が決まったら一度だけ飛ぶ）
              if (!initialPosSet && myRole != -1) {
-                 if (myRole == 0) { // Attacker -> 左上
+                 if (myRole == 0) { 
                      player.x = 1.5; player.y = 1.5; 
-                 } else { // Defender -> 右下
+                 } else { 
                      player.x = 20.5; player.y = 20.5; 
-                     player.angle = M_PI; // 向きを反転
+                     player.angle = M_PI; 
                  }
                  initialPosSet = 1;
              }
@@ -836,8 +773,9 @@ int main(int argc, char **argv) {
              selfHP = in.selfHP;
              enemyHP = in.enemyHP;
              remainingTime = in.remainingTime;
-             
              respawnTime = in.respawnTime;
+             skill1_remain = in.skill1_remain; 
+
              if (respawnTime > 0) {
                  wasDead = 1;
              } else if (wasDead) {
