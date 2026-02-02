@@ -13,6 +13,7 @@
 #define BUF_SIZE 512
 #define MAX_DOOR_HP 1000
 #define MAX_PLAYER_HP 100
+#define MAX_WALL_HP 20 // エスクードの体力
 
 #define RESPAWN_TIME_ATTACKER 10
 #define RESPAWN_TIME_DEFENDER 5
@@ -54,8 +55,8 @@ typedef struct {
     int killCount;
     int isStunned;
     int is_stealth;
-    int wallX; // ★追加
-    int wallY; // ★追加
+    int wallX;
+    int wallY;
 } server_pkt_t;
 #pragma pack(pop)
 
@@ -101,8 +102,8 @@ void init_game() {
         clients[i].skill1_usedTime = 0;
         clients[i].last_btn = 0;
         clients[i].escudo_stock = 3;
-        clients[i].active_wall_x = -1; // 初期化
-        clients[i].active_wall_y = -1; // 初期化
+        clients[i].active_wall_x = -1;
+        clients[i].active_wall_y = -1;
         clients[i].is_stealth = 0;
         clients[i].killCount = 0;
         clients[i].isStunned = 0;
@@ -116,6 +117,44 @@ void init_game() {
     printf("Game Init! Attacker ID: %d\n", attacker_id);
 }
 
+// プレイヤーの視線先にあるブロックIDを取得する関数（サーバー版）
+// ヒットしたブロックの座標を hitX, hitY に格納して返す
+int get_player_target_block(int id, int* hitX, int* hitY) {
+    float rayX = cos(clients[id].angle);
+    float rayY = sin(clients[id].angle);
+    float x = clients[id].x;
+    float y = clients[id].y;
+    int mapX = (int)x;
+    int mapY = (int)y;
+    
+    // DDAアルゴリズムの初期化
+    float deltaDistX = (rayX == 0) ? 1e30 : fabs(1.0f / rayX);
+    float deltaDistY = (rayY == 0) ? 1e30 : fabs(1.0f / rayY);
+    float sideDistX, sideDistY;
+    int stepX, stepY;
+    
+    if (rayX < 0) { stepX = -1; sideDistX = (x - mapX) * deltaDistX; }
+    else          { stepX = 1;  sideDistX = (mapX + 1.0f - x) * deltaDistX; }
+    if (rayY < 0) { stepY = -1; sideDistY = (y - mapY) * deltaDistY; }
+    else          { stepY = 1;  sideDistY = (mapY + 1.0f - y) * deltaDistY; }
+    
+    // 最大20マス先までチェック
+    for(int i=0; i<20; i++) {
+        if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; }
+        else                       { sideDistY += deltaDistY; mapY += stepY; }
+        
+        if (mapX >= 0 && mapX < MAP_WIDTH && mapY >= 0 && mapY < MAP_HEIGHT) {
+            if (worldMap[mapX][mapY] > 0) {
+                *hitX = mapX;
+                *hitY = mapY;
+                return worldMap[mapX][mapY];
+            }
+        }
+    }
+    return 0;
+}
+
+// 2点間のレイキャスト（敵への射線チェック用）
 int raycast_hit_check(float x1, float y1, float x2, float y2, int* hitX, int* hitY) {
     float dx = x2 - x1;
     float dy = y2 - y1;
@@ -238,28 +277,28 @@ int main() {
 
                 if (currentGameState == GS_PLAYING) {
                     if (clients[id].hp > 0) {
+                        // スキル使用 (Eキー)
                         if ((in->btn & 64) && !(clients[id].last_btn & 64)) {
                             int ct = (clients[id].role == 0) ? SKILL_HEAL_CT : SKILL_REPAIR_CT;
                             int passed = (int)difftime(now, clients[id].skill1_usedTime);
-                            
-                            if (clients[id].skill1_usedTime == 0 || passed >= ct) {
-                                clients[id].skill1_usedTime = now;
-                                
+                            if ((clients[id].skill1_usedTime == 0 || passed >= ct)) {
                                 if (clients[id].role == 0) {
-                                    // アタッカー: 回復のみ
+                                    clients[id].skill1_usedTime = now;
                                     skill_logic_heal_generic(&clients[id].hp, MAX_PLAYER_HP, 40);
                                 } else {
-                                    // ★修正: ディフェンダーのみ壁設置 (ID:8)
-                                    skill_logic_repair_generic(&doorHP, MAX_DOOR_HP);
                                     if (clients[id].escudo_stock > 0) {
+                                        // ディフェンダー: 壁設置
+                                        clients[id].skill1_usedTime = now;
+                                        skill_logic_repair_generic(&doorHP, MAX_DOOR_HP); // ついでにドアも修理
+                                        
                                         double dist = 2.0;
                                         int tx = (int)(clients[id].x + cos(clients[id].angle) * dist);
                                         int ty = (int)(clients[id].y + sin(clients[id].angle) * dist);
                                         if (tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT && worldMap[tx][ty] == 0) {
-                                            worldMap[tx][ty] = 8; // ID:8 (エスクード)
+                                            worldMap[tx][ty] = 8; // ID 8 = Escudo
                                             clients[id].active_wall_x = tx; 
                                             clients[id].active_wall_y = ty; 
-                                            clients[id].active_wall_hp = 200;
+                                            clients[id].active_wall_hp = MAX_WALL_HP; 
                                             printf("Server: Wall created at (%d, %d)\n", tx, ty);
                                         }
                                         clients[id].escudo_stock--;
@@ -268,33 +307,48 @@ int main() {
                             }
                         }
 
-                        if (clients[id].role == 0 && (in->btn & 2)) {
-                            if (doorHP > 0) doorHP -= 10;
+                        // ★修正: オブジェクト攻撃処理 (btn & 2)
+                        // ドア(9) または 壁(8) を狙っている場合
+                        if (in->btn & 2) {
+                            int hx, hy;
+                            // プレイヤーの視線先にあるブロックを取得
+                            int hitBlock = get_player_target_block(id, &hx, &hy);
+                            
+                            if (hitBlock == 9) { // ドア
+                                if (doorHP > 0 && clients[id].role == 0) doorHP -= 10;
+                            } 
+                            else if (hitBlock == 8) { // 壁 (Escudo)
+                                // 誰の壁か探してダメージを与える
+                                for (int k = 0; k < 2; k++) {
+                                    if (clients[k].active_wall_x == hx && clients[k].active_wall_y == hy) {
+                                        clients[k].active_wall_hp -= 40; // 攻撃ダメージ
+                                        if (clients[k].active_wall_hp <= 0) {
+                                            worldMap[hx][hy] = 0; 
+                                            clients[k].active_wall_x = -1;
+                                            printf("Wall Destroyed at (%d, %d)!\n", hx, hy);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
                         }
+
+                        // 敵への攻撃処理
                         if (clients[enemyId].active && clients[enemyId].hp > 0) {
                             int damage = 0;
                             if (in->btn & 8) damage = 40; else if (in->btn & 4) damage = 15;
                             if (damage > 0) {
+                                // 射線チェック
                                 int hx, hy;
                                 int hitObj = raycast_hit_check(clients[id].x, clients[id].y, clients[enemyId].x, clients[enemyId].y, &hx, &hy);
+                                
+                                // 間に何もない(0)なら敵にダメージ
                                 if (hitObj == 0) {
                                     clients[enemyId].hp -= damage;
                                     if (clients[enemyId].hp <= 0) {
                                         clients[enemyId].hp = 0; clients[enemyId].deadTime = time(NULL);
                                         clients[id].killCount++;
                                         printf("Player %d Killed!\n", enemyId);
-                                    }
-                                } else if (hitObj == 8) { // ★修正: 壁ID 8 の当たり判定
-                                    for (int k = 0; k < 2; k++) {
-                                        if (clients[k].active_wall_x == hx && clients[k].active_wall_y == hy) {
-                                            clients[k].active_wall_hp -= damage;
-                                            if (clients[k].active_wall_hp <= 0) {
-                                                worldMap[hx][hy] = 0; 
-                                                clients[k].active_wall_x = -1;
-                                                printf("Wall Destroyed!\n");
-                                            }
-                                            break;
-                                        }
                                     }
                                 }
                             }
@@ -314,8 +368,7 @@ int main() {
                 out.isStunned = clients[id].isStunned;
                 out.is_stealth = clients[id].is_stealth;
                 
-                // ★追加: 存在する壁の位置を送信 (なければ -1)
-                // どちらかのプレイヤーが出した壁を全員に同期する
+                // エスクード同期
                 out.wallX = -1; out.wallY = -1;
                 if (clients[0].active_wall_x != -1) { 
                     out.wallX = clients[0].active_wall_x; out.wallY = clients[0].active_wall_y; 
