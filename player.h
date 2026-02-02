@@ -41,10 +41,6 @@ typedef struct {
 void player_init(Player* player);
 void player_handle_input(Player* player, const Uint8* key_state, double deltaTime);
 
-/* ”追加”　ダメージ処理：シールドが有効ならダメージを無効化する実装例 */
-/* 戻り値: 1 = ダメージ適用された, 0 = シールドで無効化された */
-int player_take_damage(Player* player, int dmg);
-
 // (render と destroy は main.c に移動)
 
 
