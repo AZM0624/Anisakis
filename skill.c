@@ -25,10 +25,12 @@ void skill_shield_activate(Player* p)
 void skill_update(Player* p, float dt)
 {
     if (!p) return;
+/* ---- エスクード（追加） ---- */
     if (p->escudo_cooldown > 0.0f) {
         p->escudo_cooldown -= dt;
     }
-    
+
+    /* ---- シールド ---- */
     if (p->shield_timer > 0.0f) {
         p->shield_timer -= dt;
         if (p->shield_timer <= 0.0f) {
@@ -37,7 +39,35 @@ void skill_update(Player* p, float dt)
             SDL_Log("Skill: Shield expired");
         }
     }
+
+    /* ---- ダッシュ ---- */
+    if (p->dash_active) {
+        p->dash_timer -= dt;
+        if (p->dash_timer <= 0.0f) {
+            p->dash_active = 0;
+            SDL_Log("Skill: Dash ended");
+        }
+    }
+    if (p->dash_cooldown > 0.0f) {
+        p->dash_cooldown -= dt;
+        if (p->dash_cooldown < 0.0f) p->dash_cooldown = 0.0f;
+    }
+
+    /* ---- ステルス ---- */
+    if (p->stealth_active) {
+        p->stealth_timer -= dt;
+        if (p->stealth_timer <= 0.0f) {
+            p->stealth_active = 0;
+            SDL_Log("Skill: Stealth ended");
+        }
+    }
+    if (p->stealth_cooldown > 0.0f) {
+        p->stealth_cooldown -= dt;
+        if (p->stealth_cooldown < 0.0f) p->stealth_cooldown = 0.0f;
+        
+    }
 }
+
 
 int skill_is_shielded(const Player* p)
 {

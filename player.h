@@ -17,12 +17,21 @@ typedef struct {
     float escudo_cooldown; // クールタイム
     int active_wall_x, active_wall_y; // 壁の座標
     int active_wall_hp;    // 壁のHP
-
     int escudo_stock;  // ストック数
 
         /* ”追加”　スキル関連（シールド） */
     int shield_active;     // 1 = シールド有効, 0 = 無効
     float shield_timer;    // シールドの残り時間（秒）
+
+       /* ダッシュ */
+    int dash_active;        // 1 = ダッシュ中
+    float dash_timer;       // ダッシュ残り時間
+    float dash_cooldown;    // ダッシュCT
+
+      /* ステルス */
+    int stealth_active;     // 1 = ステルス中
+    float stealth_timer;    // ステルス残り時間
+    float stealth_cooldown; // ステルスCT
     // ★追加: ジャンプ用の高さと速度
     double z;          // 高さ（0が地面）
     double vz;         // 垂直方向の速度
