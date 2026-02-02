@@ -97,6 +97,12 @@ struct Client {
     uint8_t last_btn; 
     time_t deadTime;
     time_t skill1_usedTime; // スキル使用時刻
+
+    int escudo_stock;
+
+    int active_wall_x;
+    int active_wall_y;
+    int active_wall_hp;
 };
 
 struct Client clients[2]; 
@@ -121,6 +127,7 @@ void init_game() {
         clients[i].deadTime = 0; 
         clients[i].skill1_usedTime = 0;
         clients[i].last_btn = 0;
+        clients[i].escudo_stock = 3;   // ★追加: ストックを3に設定
         if (clients[i].active) {
             clients[i].role = (i == attacker_id) ? 0 : 1;
         }
@@ -130,6 +137,35 @@ void init_game() {
     phaseStartTime = time(NULL); 
     printf("Game Init! Attacker ID: %d\n", attacker_id);
 }
+
+// server.c の main関数の前あたりに追加
+
+// レイキャスト関数：弾が何にぶつかるか調べる
+int raycast_hit_check(float x1, float y1, float x2, float y2, int* hitX, int* hitY) {
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float dist = sqrt(dx*dx + dy*dy);
+    
+    int steps = (int)(dist * 2.0f);
+    if (steps < 1) steps = 1;
+
+    for (int i = 0; i <= steps; i++) {
+        float t = (float)i / steps;
+        int cx = (int)(x1 + dx * t);
+        int cy = (int)(y1 + dy * t);
+
+        if (cx >= 0 && cx < MAP_WIDTH && cy >= 0 && cy < MAP_HEIGHT) {
+            if (worldMap[cx][cy] != 0) {
+                *hitX = cx;
+                *hitY = cy;
+                return worldMap[cx][cy]; // 壁のIDを返す
+            }
+        }
+    }
+    return 0; // 遮蔽なし
+}
+
+
 
 int main() {
     int sock;
@@ -270,24 +306,47 @@ int main() {
                 if (currentGameState == GS_PLAYING) {
                     if (clients[id].hp > 0) {
                         
-                        // ★ここが修正ポイント：skill.cの共通関数を使ってHP計算
+                        // スキルボタン(64)が押された時の処理
                         if ((in->btn & 64) && !(clients[id].last_btn & 64)) {
-                            // クールタイム（skill.hで定義した定数を使用）
+                            // クールタイム設定（役割別）
                             int ct = (clients[id].role == 0) ? SKILL_HEAL_CT : SKILL_REPAIR_CT;
                             int passed = (int)difftime(now, clients[id].skill1_usedTime);
                             
-                            if (clients[id].skill1_usedTime == 0 || passed >= ct) {
+                            // 判定: クールタイム経過済み かつ ★ストックがあるか
+                            if ((clients[id].skill1_usedTime == 0 || passed >= ct) && clients[id].escudo_stock > 0) {
                                 clients[id].skill1_usedTime = now;
                                 
+                                // --- 1. 既存の効果 (回復/修理) ---
                                 if (clients[id].role == 0) {
-                                    // アタッカー: 自己治療 (汎用関数)
                                     skill_logic_heal_generic(&clients[id].hp, MAX_PLAYER_HP, 40);
                                     printf("Attacker P%d used Skill: Heal\n", id);
                                 } else {
-                                    // ディフェンダー: ドア補強 (汎用関数)
                                     skill_logic_repair_generic(&doorHP, MAX_DOOR_HP);
                                     printf("Defender P%d used Skill: Repair\n", id);
                                 }
+
+                                // --- 2. ★追加: 壁(Escudo)の生成処理 ---
+                                double dist = 2.0;
+                                int tx = (int)(clients[id].x + cos(clients[id].angle) * dist);
+                                int ty = (int)(clients[id].y + sin(clients[id].angle) * dist);
+
+                                // マップ範囲内かつ床(0)なら設置
+                                if (tx >= 0 && tx < MAP_WIDTH && ty >= 0 && ty < MAP_HEIGHT) {
+                                    if (worldMap[tx][ty] == 0) {
+                                        worldMap[tx][ty] = 2; // 壁ID=2を配置
+                                        
+                                        // 誰の壁か記録
+                                        clients[id].active_wall_x = tx;
+                                        clients[id].active_wall_y = ty;
+                                        clients[id].active_wall_hp = 200; // 耐久値
+                                        
+                                        printf("Server: Wall created at (%d, %d)\n", tx, ty);
+                                    }
+                                }
+
+                                // --- 3. ★追加: ストック消費 ---
+                                clients[id].escudo_stock--;
+                                printf("Player %d Escudo Stock: %d\n", id, clients[id].escudo_stock);
                             }
                         }
 
@@ -300,13 +359,44 @@ int main() {
                             if (in->btn & 8) damage = 40; 
                             else if (in->btn & 4) damage = 15; 
                             
+                            // server.c の main関数内の攻撃処理部分
+                            
+                            // (直前に damage の計算があるはずです)
                             if (damage > 0) {
-                                clients[enemyId].hp -= damage;
-                                if (clients[enemyId].hp <= 0) {
-                                    clients[enemyId].hp = 0;
-                                    clients[enemyId].deadTime = time(NULL); 
-                                    printf("Player %d Killed!\n", enemyId);
+                                int hx, hy;
+                                // ★修正: 壁判定を行う関数を呼ぶ
+                                int hitObj = raycast_hit_check(clients[id].x, clients[id].y, clients[enemyId].x, clients[enemyId].y, &hx, &hy);
+
+                                if (hitObj == 0) {
+                                    // 遮蔽なし -> そのまま敵にダメージ
+                                    clients[enemyId].hp -= damage;
+                                    printf("Hit Enemy! Damage: %d\n", damage);
+                                    if (clients[enemyId].hp <= 0) {
+                                        clients[enemyId].hp = 0;
+                                        clients[enemyId].deadTime = time(NULL); 
+                                        printf("Player %d Killed!\n", enemyId);
+                                    }
+                                } 
+                                else if (hitObj == 2) {
+                                    // スキル壁に命中 -> 壁にダメージ
+                                    printf("Hit Wall at (%d, %d)!\n", hx, hy);
+                                    for (int k = 0; k < 2; k++) {
+                                        // 誰の壁か探してHPを減らす
+                                        if (clients[k].active_wall_x == hx && clients[k].active_wall_y == hy) {
+                                            clients[k].active_wall_hp -= damage;
+                                            printf("Wall HP: %d\n", clients[k].active_wall_hp);
+                                            
+                                            // HPが尽きたら壁を破壊
+                                            if (clients[k].active_wall_hp <= 0) {
+                                                worldMap[hx][hy] = 0; // マップから消す
+                                                clients[k].active_wall_x = -1; // 座標リセット
+                                                printf("Wall Destroyed!\n");
+                                            }
+                                            break;
+                                        }
+                                    }
                                 }
+                                // hitObj == 1 (通常の壁) の場合は何もしない（ブロックされる）
                             }
                         }
                     }

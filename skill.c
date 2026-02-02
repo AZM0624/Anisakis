@@ -54,6 +54,10 @@ void skill_shield_activate(Player* p)
 void skill_update(Player* p, float dt)
 {
     if (!p) return;
+/* ---- エスクード（追加） ---- */
+    if (p->escudo_cooldown > 0.0f) {
+        p->escudo_cooldown -= dt;
+    }
 
     /* ---- シールド ---- */
     if (p->shield_timer > 0.0f) {
@@ -93,6 +97,7 @@ void skill_update(Player* p, float dt)
     }
 }
 
+
 int skill_is_shielded(const Player* p)
 {
     if (!p) return 0;
@@ -105,20 +110,44 @@ float skill_get_shield_time_remaining(const Player* p)
     return p->shield_timer;
 }
 
+// skill_escudo関数を修正
 void skill_escudo(Player* player) {
+    // クールタイム判定
+    if (player->escudo_cooldown > 0.0f) {
+        printf("Escudo is cooling down...\n");
+        return;
+    }
+
+    // ★追加: 回数制限のチェック
+    if (player->escudo_stock <= 0) {
+        printf("Escudo out of stock!\n");
+        return;
+    }
+
     double distance = 2.0;
     int targetX = (int)(player->x + cos(player->angle) * distance);
     int targetY = (int)(player->y + sin(player->angle) * distance);
 
     if (targetX >= 0 && targetX < MAP_WIDTH && targetY >= 0 && targetY < MAP_HEIGHT) {
         if (worldMap[targetX][targetY] == 0) {
-            worldMap[targetX][targetY] = 2;
-            printf("Escudo activated at (%d, %d)\n", targetX, targetY);
+            worldMap[targetX][targetY] = 2; // 壁を設置
+            
+            // プレイヤー情報更新
+            player->active_wall_x = targetX;
+            player->active_wall_y = targetY;
+            player->active_wall_hp = 200;
+            
+            player->escudo_cooldown = 10.0f; // クールタイムは連発防止用として残す
+            
+            player->escudo_stock--; // ★追加: ストックを1つ減らす
+            
+            printf("Escudo activated at (%d, %d). Remaining: %d\n", targetX, targetY, player->escudo_stock);
         } else {
             printf("Cannot place Escudo here (Blocked).\n");
         }
     }
 }
+
 // 汎用回復ロジック
 // サーバー側で呼ぶときは skill_logic_heal_generic(&clients[id].hp, 100, 40); のように使います
 void skill_logic_heal_generic(int* hp, int max_hp, int heal_amount) {

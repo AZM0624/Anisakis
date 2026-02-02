@@ -8,6 +8,7 @@
 #endif
 
 // プレイヤーを初期化する
+// プレイヤーを初期化する
 void player_init(Player* player) {
     player->x = 12.0f; // マップの中央付近 (2Dマップ上の座標)
     player->y = 12.0f;
@@ -21,6 +22,8 @@ void player_init(Player* player) {
 
     player->shield_active = 0; //追加
     player->shield_timer = 0.0f; //追加
+
+    player->escudo_stock = 3; // エスクードのストック初期化
 
     player->dash_active = 0;
     player->dash_timer = 0.0f;
