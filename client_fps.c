@@ -20,7 +20,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// ★★★ サーバーPCのIPアドレスに書き換えてください ★★★
+// サーバーPCのIPアドレス
 #define SERVER_IP "192.168.1.130" 
 
 #define SERVER_PORT 12345
@@ -481,7 +481,7 @@ int main(int argc, char **argv) {
 
     IMG_Init(IMG_INIT_PNG); TTF_Init();
 
-    // ★変更: 全画面 + 自動スケール
+    // 全画面 + 自動スケール
     SDL_Window *win = SDL_CreateWindow("FPS Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_FULLSCREEN_DESKTOP);
     SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
     SDL_RenderSetLogicalSize(ren, SCREEN_WIDTH, SCREEN_HEIGHT);
