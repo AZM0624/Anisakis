@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // 非ブロッキングにする（SDLループでrecvをポーリングするため）
+    // 非ブロッキングにする
     make_socket_nonblocking(sock);
 
     memset(&srvaddr,  0, sizeof(srvaddr));
@@ -60,10 +60,10 @@ int main(int argc, char **argv) {
     SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
 
     float px = WIN_W/4.0f, py = WIN_H/2.0f;           // 自分
-    float ox = 3*WIN_W/4.0f, oy = WIN_H/2.0f;         // 相手（受信）
+    float ox = 3*WIN_W/4.0f, oy = WIN_H/2.0f;         // 相手
     uint32_t seq = 0;
 
-    // 最初に一個登録パケットを送る（サーバーが登録するため）
+    // 最初に一個登録パケットを送る
     pkt_t p;
     p.seq = htonl(seq++);
     float nx = px, ny = py;
@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
                 pkt_t in;
                 memcpy(&in, buf, sizeof(pkt_t));
                 uint32_t rseq = ntohl(in.seq);
-                // 直接floatを受け取って代入（簡易）
+                // 直接floatを受け取って代入
                 ox = in.x; oy = in.y;
                 //printf("recv seq %u pos(%.1f,%.1f)\n", rseq, ox, oy);
             }
