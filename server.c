@@ -79,7 +79,7 @@ struct Client {
     uint8_t is_stealth;
     int killCount;
     int isStunned;
-    double stunTimer; // ★追加: スタン残り時間管理用
+    double stunTimer; // スタン残り時間管理用
 };
 
 struct Client clients[2]; 
@@ -331,7 +331,7 @@ int main() {
                             }
                         }
 
-                        // ★追加: Ultimate (Qキー)
+                        // Ultimate (Qキー)
                         if ((in->btn & 128) && !(clients[id].last_btn & 128)) {
                             // ディフェンダーのみ & 3キル以上
                             if (clients[id].role == 1 && clients[id].killCount >= 3) {
