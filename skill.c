@@ -54,7 +54,7 @@ void skill_shield_activate(Player* p)
 void skill_update(Player* p, float dt)
 {
     if (!p) return;
-/* ---- エスクード（追加） ---- */
+/* ---- エスクード ---- */
     if (p->escudo_cooldown > 0.0f) {
         p->escudo_cooldown -= dt;
     }
@@ -110,7 +110,6 @@ float skill_get_shield_time_remaining(const Player* p)
     return p->shield_timer;
 }
 
-// skill_escudo関数を修正
 void skill_escudo(Player* player) {
     // クールタイム判定
     if (player->escudo_cooldown > 0.0f) {
@@ -118,7 +117,7 @@ void skill_escudo(Player* player) {
         return;
     }
 
-    // ★追加: 回数制限のチェック
+    // 回数制限のチェック
     if (player->escudo_stock <= 0) {
         printf("Escudo out of stock!\n");
         return;
@@ -137,9 +136,9 @@ void skill_escudo(Player* player) {
             player->active_wall_y = targetY;
             player->active_wall_hp = 200;
             
-            player->escudo_cooldown = 10.0f; // クールタイムは連発防止用として残す
+            player->escudo_cooldown = 10.0f; // クールタイムは連発防止用
             
-            player->escudo_stock--; // ★追加: ストックを1つ減らす
+            player->escudo_stock--; // ストックを1つ減らす
             
             printf("Escudo activated at (%d, %d). Remaining: %d\n", targetX, targetY, player->escudo_stock);
         } else {
@@ -149,7 +148,6 @@ void skill_escudo(Player* player) {
 }
 
 // 汎用回復ロジック
-// サーバー側で呼ぶときは skill_logic_heal_generic(&clients[id].hp, 100, 40); のように使います
 void skill_logic_heal_generic(int* hp, int max_hp, int heal_amount) {
     if (!hp) return;
     if (*hp <= 0) return; // 死亡時は回復不可
@@ -167,7 +165,7 @@ void skill_logic_repair_generic(int* object_hp, int max_object_hp) {
     if (*object_hp <= 0) return; // 破壊済みなら直せない
 
     int old_hp = *object_hp;
-    *object_hp += SKILL_REPAIR_AMOUNT; // skill.hで定義した値(50)
+    *object_hp += SKILL_REPAIR_AMOUNT; // skill.hで定義した値
     if (*object_hp > max_object_hp) *object_hp = max_object_hp;
 
     printf("[Skill Logic] Repair: %d -> %d\n", old_hp, *object_hp);
